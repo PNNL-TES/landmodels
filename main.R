@@ -1,5 +1,6 @@
 # Visualize models' global HR
 
+library(raster)
 library(ncdf4)
 library(tibble)
 library(tidyr)
@@ -7,6 +8,31 @@ library(drake)
 library(dplyr)
 library(ggplot2)
 theme_set(theme_bw())
+
+source("plots.R")
+
+
+read_warner_rh <- function(f) {
+  dw <- raster(f)
+  
+  lat_bands <- seq(-90, 90, by = 5)
+  lat_bands <- sort(lat_bands)  # make sure sorted for extent()
+  
+  dat <- tibble(model = "warner", 
+                type = "benchmark",
+                lat = (head(lat_bands, n = -1) + lat_bands[-1]) / 2,
+                time = 2010,
+                hr_gC_m2_yr = NA_real_, 
+                hr_PgC_yr = NA_real_)
+  
+  for(i in head(seq_along(lat_bands), n = -1)) {
+    message(basename(f), " ", lat_bands[i])
+    ex <- raster::extent(c(-180, 180, lat_bands[i], lat_bands[i + 1]))
+    dat$hr_gC_m2_yr[i] <- raster::extract(dw, ex, fun = mean, na.rm = TRUE)  # gC/m2/yr
+    dat$hr_PgC_yr[i] <- NA
+  }
+  dat
+}
 
 read_hashimoto_areas <- function(f) {
   nc <- nc_open(f)
@@ -34,12 +60,11 @@ read_hashimoto_rh <- function(f) {
     }
   }
   nc_close(nc)
-
+  
   as_tibble(dat) %>% mutate(time = 1901 + time, type = "benchmark")
 }
 
 read_tang_rh <- function(f, area_cellarea) {
-  browser()
   nc <- nc_open(f)
   time <- ncvar_get(nc, "z")
   latitude <- ncvar_get(nc, "latitude")
@@ -49,7 +74,7 @@ read_tang_rh <- function(f, area_cellarea) {
   # there's a minus sign below
   dat <- expand.grid(model = "tang", lat = -latitude, time = time, hr = NA_real_, stringsAsFactors = FALSE)
   for(t in seq_along(time)) {
-    message(basename(f), " ", time[t], " ", lat)
+    message(basename(f), " ", time[t])
     for(lat in seq_along(latitude)) {
       hr <- ncvar_get(nc, "variable", start = c(1, lat, t), count = c(-1, 1, 1)) # gC/m2/yr?
       i <- which(dat$lat == latitude[lat] & dat$time == time[t])
@@ -64,7 +89,7 @@ read_tang_rh <- function(f, area_cellarea) {
 }
 
 read_landmodels <- function(lm_files) {
-
+  
   # Open up each file in turn and extract land area, missing flag, and time
   resultslist <- list()
   for(f in lm_files) {
@@ -75,6 +100,8 @@ read_landmodels <- function(lm_files) {
     latitude <- ncvar_get(nc, "lat")
     
     modelname <- strsplit(basename(f), "_")[[1]][1]
+    # Each model has a different output name for HR
+    hr_var_name <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
     
     # Get each year in turn, sum across latitude
     dat <- expand.grid(model = modelname, lat = latitude, time = time, hr = NA_real_, stringsAsFactors = FALSE)
@@ -94,53 +121,6 @@ read_landmodels <- function(lm_files) {
   bind_rows(resultslist) %>% mutate(type = "land model")
 }
 
-plot_latitude <- function(dat) {
-  
-  standard_latitudes <- seq(-90, 90, by = 10)
-  
-  dat %>% 
-    # for each model, mean value over time by latitude
-    group_by(model, type, lat) %>% 
-    summarise(hr_gC_m2_yr = mean(hr_gC_m2_yr, na.rm = TRUE)) %>% 
-    # fill NAs
-    replace_na(list(hr_gC_m2_yr = 0)) %>% 
-    # put on common latitude bands
-    complete(model, type, lat = c(standard_latitudes, .$lat)) %>% 
-    arrange(model, type, lat) %>% 
-    # interpolate
-    group_by(model, type) %>% 
-    mutate(hr_gC_m2_yr = approx(lat, hr_gC_m2_yr, xout = lat, rule = 2)$y) %>% 
-    filter(lat %in% standard_latitudes) %>% 
-    mutate(hr_gC_m2_yr_percent = hr_gC_m2_yr / sum(hr_gC_m2_yr, na.rm = TRUE)) ->
-    plotting_data
-  
-  plotting_data %>% 
-    ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
-    geom_line() +
-    scale_size_manual(values = c(1.25, 0.75)) +
-    scale_y_continuous(labels = scales::percent) +
-    xlab("Latitude") +
-    ylab(expression(R[H]~by~latitude)) ->
-    p3
-  print(p3)
-  ggsave("outputs/p3.pdf", width = 6, height = 4)
-}
-
-plot_landmodels_time <- function(lm_dat) {
-  p1 <- ggplot(lm_dat, aes(time, hr, color = model)) + geom_line()
-  print(p1)
-  ggsave("outputs/p1.pdf")
-  
-  lm_dat %>% 
-    mutate(Year = floor(time)) %>% 
-    group_by(model, Year) %>% 
-    summarise(n = n(), hr_PgC = sum(hr, na.rm = TRUE)) %>% 
-    filter(n == 365) %>% 
-    ggplot(aes(Year, hr_PgC, color = model)) + geom_line() ->
-    p2
-  print(p2)
-  ggsave("outputs/p2.pdf")
-}
 
 
 plan <- drake::drake_plan(
@@ -152,6 +132,7 @@ plan <- drake::drake_plan(
   hda = read_hashimoto_areas("~/Data/Hashimoto/RH_yr_Hashimoto2015.nc"),
   tang_dat = read_tang_rh("~/Data/Tang_Rh/RH.RF.720.360.1980.2016.Yearly.nc", hda),
   
-  latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat))
+  warner_dat = read_warner_rh("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif"),
+  
+  latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
 )
-

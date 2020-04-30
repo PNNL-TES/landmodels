@@ -38,3 +38,7 @@ rsconnect/
 
 # OS files
 .DS_Store
+
+# ignore data and outputs
+Data/
+outputs/

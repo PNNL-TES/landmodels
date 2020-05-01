@@ -35,7 +35,7 @@ plot_latitude <- function(dat, lat_bands = LAT_BANDS) {
 plot_landmodels_time <- function(lm_dat) {
   p1 <- ggplot(lm_dat, aes(time, hr, color = model)) + geom_line()
   print(p1)
-  ggsave("outputs/p1.pdf")
+  # ggsave("outputs/p1.pdf")
   
   lm_dat %>% 
     mutate(Year = floor(time)) %>% 
@@ -45,5 +45,5 @@ plot_landmodels_time <- function(lm_dat) {
     ggplot(aes(Year, hr_PgC, color = model)) + geom_line() ->
     p2
   print(p2)
-  ggsave("outputs/p2.pdf")
+  # ggsave("outputs/p2.pdf")
 }

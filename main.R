@@ -9,7 +9,11 @@ library(dplyr)
 library(ggplot2)
 theme_set(theme_bw())
 
+DATA_DIR <- 'extdata'
+OUT_DIR <- 'outputs'
+
 source("plots.R")
+source("functions.R")
 
 
 read_warner_rh <- function(f) {
@@ -48,7 +52,7 @@ read_hashimoto_rh <- function(f) {
   
   # Get each year in turn, sum across latitude
   dat <- expand.grid(model = "hashimoto", lat = -latitude, time = time,
-                     hr_gC_m2_yr = NA_real_, hr_PgC_yr = NA_real_,stringsAsFactors = FALSE)
+                     hr_gC_m2_yr = NA_real_, hr_PgC_yr = NA_real_, stringsAsFactors = FALSE)
   for(t in tail(seq_along(time))) {
     message(basename(f), " ", time[t])
     for(lat in seq_along(latitude)) {
@@ -122,7 +126,6 @@ read_landmodels <- function(lm_files) {
 }
 
 
-
 plan <- drake::drake_plan(
   lm_files = list.files("~/Data/Wieder/", pattern = "*.nc", full.names = TRUE),
   landmodel_dat = read_landmodels(lm_files),
@@ -134,5 +137,9 @@ plan <- drake::drake_plan(
   
   warner_dat = read_warner_rh("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif"),
   
-  latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
+  # this plot moved to the markdown file
+  # latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat)),
+  
+  # load the global monthly heterotrophic respiration data
+  MGRhD = read_file('MGRhD.csv')
 )

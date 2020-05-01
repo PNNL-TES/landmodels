@@ -1,0 +1,55 @@
+---
+title: "landModel-Rh"
+output: html_document
+---
+
+# loading necessary packages
+```{r preliminaries, message=FALSE, echo=FALSE}
+library(readxl)
+library(styler)
+library(ggplot2)
+theme_set(theme_bw())
+library(cowplot)
+library(tidyr)
+library(dplyr)
+library(cowplot)
+library(data.table)
+library(lubridate)
+library(kableExtra)
+library(knitr)
+library(ggpubr)
+library(ggmap)
+library(maps)
+library(mapdata)
+library(leaflet)
+library(sp)
+library(RColorBrewer)
+library(drake)  # 6.1.0
+# Source all needed functions
+source('plots.R')
+# set data and outputs file direction
+# Set chunks defaults; these options will be applied to all subsequent chunks
+knitr::opts_chunk$set(results = 'hide', message = TRUE, include = TRUE, 
+                      echo = FALSE, warning = FALSE,
+                      fig.height = 4, fig.width = 8, cache = FALSE)
+```
+
+
+## load data
+```{r}
+landmodel_dat <- readd(landmodel_dat)
+hashimoto_dat <- readd(hashimoto_dat)
+tang_dat <- readd(tang_dat)
+warner_dat <- readd(warner_dat)
+MGRhD <- readd(MGRhD)
+MGRhD %>% 
+  filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
+  filter(Meas_Year >= 2000 & Meas_Year <= 2010) ->
+  subMGRhD
+```
+
+```{r}
+plot_landmodels_time(landmodel_dat)
+plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
+```
+

@@ -44,12 +44,24 @@ warner_dat <- readd(warner_dat)
 MGRhD <- readd(MGRhD)
 MGRhD %>% 
   filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
-  filter(Meas_Year >= 2000 & Meas_Year <= 2010) ->
+  filter(Meas_Year >= 2000 & Meas_Year <= 2010 & !is.na(Rh_Norm)) ->
   subMGRhD
 ```
 
-```{r}
+
+
+```{r plot model comparison}
+
 plot_landmodels_time(landmodel_dat)
+global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_dat)
 plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
 ```
 
+```{r test}
+tang_dat %>% 
+  select(-hr) %>% 
+  mutate(Year = floor(time)) %>% 
+  na.omit() %>%
+  group_by(model, Year) %>% 
+  summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) 
+```

@@ -15,7 +15,6 @@ OUT_DIR <- 'outputs'
 source("plots.R")
 source("functions.R")
 
-
 read_warner_rh <- function(f) {
   dw <- raster(f)
   
@@ -64,7 +63,6 @@ read_hashimoto_rh <- function(f) {
     }
   }
   nc_close(nc)
-  
   as_tibble(dat) %>% mutate(time = 1901 + time, type = "benchmark")
 }
 

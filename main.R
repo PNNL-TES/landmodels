@@ -87,7 +87,7 @@ read_tang_rh <- function(f, area_cellarea) {
   }
   nc_close(nc)
   
-  as_tibble(dat) %>% mutate(type = "benchmark")
+  as_tibble(dat) %>% mutate(type = "benchmark", time = time + 1979)
 }
 
 read_landmodels <- function(lm_files) {

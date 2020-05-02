@@ -57,6 +57,19 @@ global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_d
 plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
 ```
 
+```{r}
+hashimoto_dat %>% 
+  na.omit() %>% 
+  group_by(model) %>% 
+  summarise(gCyr = mean(hr_gC_m2_yr), PgC = mean(hr_PgC_yr))
+
+tang_dat %>% 
+  select(-hr) %>% 
+  na.omit() %>% 
+  group_by(model) %>% 
+  summarise(gCyr = mean(hr_gC_m2_yr), PgC = mean(hr_PgC_yr))
+```
+
 
 ```{r test}
 tang_dat %>% 
@@ -64,5 +77,9 @@ tang_dat %>%
   mutate(Year = floor(time)) %>% 
   na.omit() %>%
   group_by(model, Year) %>% 
-  summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) 
+  summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) %>% 
+  ggplot(aes(Year, hr_PgC)) +
+  geom_point() +
+  geom_line()
+  
 ```

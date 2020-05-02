@@ -103,7 +103,7 @@ read_landmodels <- function(lm_files) {
     
     modelname <- strsplit(basename(f), "_")[[1]][1]
     # Each model has a different output name for HR
-    hr_var_name <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
+    hr_var_name <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp") #g C m-2 day-1
     
     # Get each year in turn, sum across latitude
     dat <- expand.grid(model = modelname, lat = latitude, time = time, hr = NA_real_, stringsAsFactors = FALSE)

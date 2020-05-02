@@ -57,6 +57,7 @@ global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_d
 plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
 ```
 
+
 ```{r test}
 tang_dat %>% 
   select(-hr) %>% 

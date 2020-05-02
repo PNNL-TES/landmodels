@@ -42,3 +42,4 @@ rsconnect/
 # ignore data and outputs
 Data/
 outputs/
+.drake/

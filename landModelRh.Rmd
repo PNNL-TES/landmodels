@@ -220,7 +220,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(mimics, Rh_Norm)) +
     geom_hex() +
-    scale_fill_distiller(palette = "YlGnBu", name = "Grid cells") +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),

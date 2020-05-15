@@ -5,13 +5,13 @@ output: html_document
 
 # loading necessary packages
 ```{r preliminaries, message=FALSE, echo=FALSE}
+library(tidyr)
+library(dplyr)
 library(readxl)
 library(styler)
 library(ggplot2)
 theme_set(theme_bw())
 library(cowplot)
-library(tidyr)
-library(dplyr)
 library(cowplot)
 library(data.table)
 library(lubridate)
@@ -24,7 +24,7 @@ library(mapdata)
 library(leaflet)
 library(sp)
 library(RColorBrewer)
-library(drake)  # 6.1.0
+library(hexbin)
 # Source all needed functions
 source('plots.R')
 # set data and outputs file direction
@@ -37,15 +37,19 @@ knitr::opts_chunk$set(results = 'hide', message = TRUE, include = TRUE,
 
 ## load data
 ```{r}
-landmodel_dat <- readd(landmodel_dat)
-hashimoto_dat <- readd(hashimoto_dat)
-tang_dat <- readd(tang_dat)
-warner_dat <- readd(warner_dat)
-MGRhD <- readd(MGRhD)
+landmodel_dat <- drake::readd(landmodel_dat)
+hashimoto_dat <- drake::readd(hashimoto_dat)
+tang_dat <- drake::readd(tang_dat)
+warner_dat <- drake::readd(warner_dat)
+MGRhD <- drake::readd(MGRhD_landmodel)
 MGRhD %>% 
   filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
   filter(Meas_Year >= 2000 & Meas_Year <= 2010 & !is.na(Rh_Norm)) ->
   subMGRhD
+srdb <- drake::readd(srdb)
+srdb_rh <- drake::readd(srdb_rh)
+# return those with annual Rh
+
 ```
 
 
@@ -60,14 +64,14 @@ plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
 ```{r}
 hashimoto_dat %>% 
   na.omit() %>% 
-  group_by(model) %>% 
-  summarise(gCyr = mean(hr_gC_m2_yr), PgC = mean(hr_PgC_yr))
+  group_by(time) %>% 
+  summarise(gCyr = mean(hr_gC_m2_yr), PgC = sum(hr_PgC_yr))
 
 tang_dat %>% 
   select(-hr) %>% 
   na.omit() %>% 
-  group_by(model) %>% 
-  summarise(gCyr = mean(hr_gC_m2_yr), PgC = mean(hr_PgC_yr))
+  group_by(time) %>% 
+  summarise(gCyr = mean(hr_gC_m2_yr), PgC = sum(hr_PgC_yr))
 ```
 
 
@@ -81,5 +85,204 @@ tang_dat %>%
   ggplot(aes(Year, hr_PgC)) +
   geom_point() +
   geom_line()
+```
+
+```{r}
+srdb_rh %>% 
+  count(Study_midyear)
+```
+
+
+```{r, fig.width=4, fig.height=8}
+plot_grid(
+  srdb_rh %>% 
+    dplyr::select(warner_rh, Rh_annual, Manipulation) %>% 
+    filter(Manipulation == "None") %>% 
+    na.omit() %>% 
+    ggplot(aes(warner_rh, Rh_annual)) +
+    geom_hex() +
+    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(Warner~R[H]~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
+  
+  srdb_rh %>% 
+    dplyr::select(tang_rh, Rh_annual, Manipulation) %>% 
+    filter(Manipulation == "None") %>% 
+    na.omit() %>% 
+    ggplot(aes(tang_rh, Rh_annual)) +
+    geom_hex() +
+    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(Tang~R[H]~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
+  
+  srdb_rh %>% 
+    dplyr::select(hashi_rh, Rh_annual, Manipulation) %>% 
+    filter(Manipulation == "None") %>% 
+    na.omit() %>% 
+    ggplot(aes(hashi_rh, Rh_annual)) +
+    geom_hex() +
+    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(Hashimoto~R[H]~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
+  
+  ncol = 1
+)
+
+ggsave('outputs/Figure-annualRh-regression-all.jpg', width = 4, height = 8)
+```
+
+```{r}
+# over all - annual Rh comparison
+srdb_rh %>% 
+  select(Rh_annual, warner_rh, tang_rh, hashi_rh, Manipulation) %>% 
+  rename(Annual_Rh = Rh_annual) %>% 
+  filter(Manipulation == "None") %>% 
+  na.omit() %>% 
+  select(Annual_Rh, warner_rh, tang_rh, hashi_rh) %>% 
+  gather("Group", "Rh") %>% 
+  ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 0, vjust = 0.0, size = 10, face = "bold")) +
+  labs(y = expression(R[H]~(g~C~m^2~year^{-1})))
+
+ggsave('outputs/Figure-annualRh-comparison-all.jpg', width = 4, height = 3)
+
+```
+
+```{r, fig.width=8, fig.height=8}
+plot_grid(
+  MGRhD %>% 
+    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, casaclm, Manipulation) %>% 
+    filter(casaclm > 0 & Manipulation == "None") %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(casaclm, Rh_Norm)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(CASACLM~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[S])),
+  
+  MGRhD %>% 
+    dplyr::select(casaclm, corpse, mimics) %>% 
+    filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(casaclm, mimics)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm") +
+    labs(x = expression(CASACLM~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(MIMICS~predicted~R[S])),
+  
+  MGRhD %>% 
+    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, corpse, Manipulation) %>% 
+    filter(corpse > 0 & Manipulation == "None") %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(corpse, Rh_Norm)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[S]~(g~C~m^{2}~day^{-1}))),
+  
+  MGRhD %>% 
+    dplyr::select(casaclm, corpse, mimics) %>% 
+    filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(corpse, mimics)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(MIMICS~predicted~R[S]~(g~C~m^{2}~day^{-1}))),
+  
+  MGRhD %>% 
+    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, mimics, Manipulation) %>% 
+    filter(mimics > 0 & Manipulation == "None") %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(mimics, Rh_Norm)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(MIMICS~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[S])),
+  
+  MGRhD %>% 
+    dplyr::select(casaclm, corpse, mimics) %>% 
+    filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(corpse, casaclm)) +
+    geom_hex() +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
+         y = expression(CASACLM~Predicted~R[S])),
+  
+  ncol = 2
+)
+
+ggsave('outputs/Figure-monthRh-regression.jpg', width = 8, height = 8)
+```
+
+
+## Rh by month in different models
+
+```{r, fig.width=6, fig.height=7}
+# over all
+MGRhD %>% 
+  select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
+  rename(Rh = Rh_Norm) %>% 
+  filter(Manipulation == "None") %>% 
+  na.omit() %>% 
+  select(Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
+  gather("Group", "Rh", -Meas_Month2) %>% 
+  ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 0, vjust = 0.0, size = 10, face = "bold")) +
+  labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
+
+ggsave('outputs/Figure-monthRh-comparison-all.jpg', width = 4, height = 3)
+
+# seperate by group
+MGRhD %>% 
+  select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
+  rename(Rh = Rh_Norm) %>% 
+  mutate(Seasnon = case_when(
+    Meas_Month2 %in% c(3, 4, 5)~"(a) Spring",
+    Meas_Month2 %in% c(6, 7, 8)~"(b) Summer",
+    Meas_Month2 %in% c(9, 10, 11)~"(c) Autumn",
+    Meas_Month2 %in% c(12, 1, 2)~"(d) Winter",
+    TRUE ~ "Other"
+  )) %>% 
+  filter(Manipulation == "None") %>% 
+  na.omit() %>% 
+  select(Seasnon, Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
+  gather("Group", "Rh", -Seasnon, -Meas_Month2) %>% 
+  ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  facet_wrap(Seasnon ~ Meas_Month2,
+             ncol = 3,
+             scales = "free") +
+  theme(legend.position = "top",
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
+
+ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 6, height = 7)
   
 ```

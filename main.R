@@ -1,12 +1,12 @@
 # Visualize models' global HR
 
-library(raster)
-library(ncdf4)
 library(tibble)
 library(tidyr)
 library(drake)
 library(dplyr)
 library(ggplot2)
+library(raster)
+library(ncdf4)
 theme_set(theme_bw())
 
 DATA_DIR <- 'extdata'
@@ -123,6 +123,27 @@ read_landmodels <- function(lm_files) {
   bind_rows(resultslist) %>% mutate(type = "land model")
 }
 
+# get rh from warner, hashimoto and tang for srdb-v5 data
+get_srdb_rh <- function(dat) {
+  dat %>% 
+    dplyr::select(Latitude, Longitude, Study_midyear, Rh_annual, Manipulation) %>% 
+    na.omit() %>% 
+    mutate(Study_midyear = floor(Study_midyear)) %>% 
+    arrange(Rh_annual) ->
+    srdb_rh
+  
+  srdb_rh <- get_warner_rh(srdb_rh)
+  srdb_rh <- get_tang(srdb_rh)
+  srdb_rh <- get_hashimoto(srdb_rh)
+}
+
+# get rh from landmodels for mgrhd data
+get_mgrhd_rh <- function() {
+  MGRhD <- clean_mgrhd(read_file('MGRhD.csv'))
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//casaclm_pool_flux_2000-2010_daily.nc", MGRhD)
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//corpse_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//mimics_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
+}
 
 plan <- drake::drake_plan(
   lm_files = list.files("~/Data/Wieder/", pattern = "*.nc", full.names = TRUE),
@@ -139,5 +160,9 @@ plan <- drake::drake_plan(
   # latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat)),
   
   # load the global monthly heterotrophic respiration data
-  MGRhD = read_file('MGRhD.csv')
+  MGRhD_landmodel = get_mgrhd_rh(),
+  srdb = read.csv("~/Documents/PNNL/srdb/srdb-data.csv"),
+  srdb_rh = get_srdb_rh(srdb)
 )
+
+make(plan)

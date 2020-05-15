@@ -4,23 +4,26 @@
 #****************************************************************************************************
 library(ncdf4)
 
-# ncname <- "~/Data/Hashimoto/RH_yr_Hashimoto2015.cn"  
-ncname <- "~/Data/Tang_Rh/RH.RF.720.360.1980.2016.Yearly.nc" 
-dname <- "cresp"  # note: tas means air temperature 
+ncname <- "~/Data/Hashimoto/RH_yr_Hashimoto2015.nc"
+# ncname <- "~/Data/Tang_Rh/RH.RF.720.360.1980.2016.Yearly.nc" 
+dname <- "co2"  # note: tas means air temperature 
 
 # open a netCDF file
-ncin <- nc_open(ncname, readunlim=TRUE,auto_GMT=TRUE,suppress_dimvals=TRUE)
+ncin <- nc_open(ncname, readunlim=TRUE, auto_GMT=TRUE, suppress_dimvals=TRUE)
 print(ncin)
 summary(ncin)
 
+x <- ncvar_get(ncin, "co2", start = c(1, 1, 1, 1), count = c(-1, -1, -1, 1))
+image(x)
+
 # Get the longtiudes and latitudes as before, using now the ncvar_get() function in ncdf4.
 
-lon <- ncvar_get(ncin,"longitude")
+lon <- ncvar_get(ncin,"lon")
 nlon <- dim(lon)
 head(lon)
 
 
-lat <- ncvar_get(ncin,"latitude",verbose=F)
+lat <- ncvar_get(ncin,"lat",verbose=F)
 nlat <- dim(lat)
 head(lat)
 
@@ -112,4 +115,24 @@ tmp_df01 <- data.frame(cbind(lonlat_time,tmp_vec))
 names(tmp_df01) <- c("lon","lat","time",paste(dname,as.character(m), sep="_"))
 head(na.omit(tmp_df01), 10)
 
+#****************************************************************************************************
+# lean raster package
+#****************************************************************************************************
+warner_rh <- raster("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif")
+
+# cellStats(warner_rh, min, na.rm = TRUE)
+# view Coordinate Reference System (CRS)
+warner_rh@crs
+warner_rh@extent
+ex <- raster::extent(c(129, 129.5, 62, 62.5))
+raster::extract(warner_rh, ex, fun = mean, na.rm = TRUE)
+
+# the distribution of values in the raster
+hist(warner_rh, main="Distribution of elevation values", 
+     col= "purple")
+
+plot(warner_rh, 
+     main="Rh from Warner")
+
+image(warner_rh)
 

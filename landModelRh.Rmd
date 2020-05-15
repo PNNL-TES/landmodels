@@ -94,13 +94,15 @@ srdb_rh %>%
 
 
 ```{r, fig.width=4, fig.height=8}
+# palette: YlGnBu, RdBu
 plot_grid(
   srdb_rh %>% 
     dplyr::select(warner_rh, Rh_annual, Manipulation) %>% 
     filter(Manipulation == "None") %>% 
     na.omit() %>% 
     ggplot(aes(warner_rh, Rh_annual)) +
-    geom_hex() +
+    geom_hex(col = "gray", bins = 20) +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(Warner~R[H]~(g~C~m^{-2}~yr^{-1})),
@@ -111,7 +113,8 @@ plot_grid(
     filter(Manipulation == "None") %>% 
     na.omit() %>% 
     ggplot(aes(tang_rh, Rh_annual)) +
-    geom_hex() +
+    geom_hex(col = "gray", bins = 20) +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(Tang~R[H]~(g~C~m^{-2}~yr^{-1})),
@@ -122,7 +125,8 @@ plot_grid(
     filter(Manipulation == "None") %>% 
     na.omit() %>% 
     ggplot(aes(hashi_rh, Rh_annual)) +
-    geom_hex() +
+    geom_hex(col = "gray", bins = 20) +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(Hashimoto~R[H]~(g~C~m^{-2}~yr^{-1})),
@@ -164,6 +168,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(casaclm, Rh_Norm)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
@@ -176,6 +181,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(casaclm, mimics)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm") +
     labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
@@ -188,6 +194,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(corpse, Rh_Norm)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
@@ -200,6 +207,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(corpse, mimics)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
@@ -212,6 +220,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(mimics, Rh_Norm)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Grid cells") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),
@@ -224,6 +233,7 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(corpse, casaclm)) +
     geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),

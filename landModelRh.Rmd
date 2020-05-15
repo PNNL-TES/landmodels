@@ -166,8 +166,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CASACLM~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[S])),
+    labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H])),
   
   MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
@@ -178,8 +178,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm") +
-    labs(x = expression(CASACLM~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(MIMICS~predicted~R[S])),
+    labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(MIMICS~predicted~R[H])),
   
   MGRhD %>% 
     dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, corpse, Manipulation) %>% 
@@ -190,8 +190,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[S]~(g~C~m^{2}~day^{-1}))),
+    labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{2}~day^{-1}))),
   
   MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
@@ -202,8 +202,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(MIMICS~predicted~R[S]~(g~C~m^{2}~day^{-1}))),
+    labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1}))),
   
   MGRhD %>% 
     dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, mimics, Manipulation) %>% 
@@ -214,8 +214,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(MIMICS~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[S])),
+    labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H])),
   
   MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
@@ -226,8 +226,8 @@ plot_grid(
     geom_hex() +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CORPSE~predicted~R[S]~(g~C~m^{2}~day^{-1})),
-         y = expression(CASACLM~Predicted~R[S])),
+    labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(CASACLM~Predicted~R[H])),
   
   ncol = 2
 )

@@ -1,16 +1,19 @@
 # Visualize models' global HR
 
-library(raster)
-library(ncdf4)
 library(tibble)
 library(tidyr)
 library(drake)
 library(dplyr)
 library(ggplot2)
+library(raster)
+library(ncdf4)
 theme_set(theme_bw())
 
-source("plots.R")
+DATA_DIR <- 'extdata'
+OUT_DIR <- 'outputs'
 
+source("plots.R")
+source("functions.R")
 
 read_warner_rh <- function(f) {
   dw <- raster(f)
@@ -48,7 +51,7 @@ read_hashimoto_rh <- function(f) {
   
   # Get each year in turn, sum across latitude
   dat <- expand.grid(model = "hashimoto", lat = -latitude, time = time,
-                     hr_gC_m2_yr = NA_real_, hr_PgC_yr = NA_real_,stringsAsFactors = FALSE)
+                     hr_gC_m2_yr = NA_real_, hr_PgC_yr = NA_real_, stringsAsFactors = FALSE)
   for(t in tail(seq_along(time))) {
     message(basename(f), " ", time[t])
     for(lat in seq_along(latitude)) {
@@ -60,7 +63,6 @@ read_hashimoto_rh <- function(f) {
     }
   }
   nc_close(nc)
-  
   as_tibble(dat) %>% mutate(time = 1901 + time, type = "benchmark")
 }
 
@@ -85,7 +87,7 @@ read_tang_rh <- function(f, area_cellarea) {
   }
   nc_close(nc)
   
-  as_tibble(dat) %>% mutate(type = "benchmark")
+  as_tibble(dat) %>% mutate(type = "benchmark", time = time + 1979)
 }
 
 read_landmodels <- function(lm_files) {
@@ -96,12 +98,13 @@ read_landmodels <- function(lm_files) {
     nc <- nc_open(f)
     landarea <- ncvar_get(nc, "landarea")  # km2
     cellMissing <- !ncvar_get(nc, "cellMissing")
-    time <- ncvar_get(nc, "time")[1:365]
+    # time <- ncvar_get(nc, "time")[1:365] # only 1 year
+    time <- ncvar_get(nc, "time") # all data
     latitude <- ncvar_get(nc, "lat")
     
     modelname <- strsplit(basename(f), "_")[[1]][1]
     # Each model has a different output name for HR
-    hr_var_name <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
+    hr_var_name <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp") #g C m-2 day-1
     
     # Get each year in turn, sum across latitude
     dat <- expand.grid(model = modelname, lat = latitude, time = time, hr = NA_real_, stringsAsFactors = FALSE)
@@ -121,7 +124,27 @@ read_landmodels <- function(lm_files) {
   bind_rows(resultslist) %>% mutate(type = "land model")
 }
 
+# get rh from warner, hashimoto and tang for srdb-v5 data
+get_srdb_rh <- function(dat) {
+  dat %>% 
+    dplyr::select(Latitude, Longitude, Study_midyear, Rh_annual, Manipulation) %>% 
+    na.omit() %>% 
+    mutate(Study_midyear = floor(Study_midyear)) %>% 
+    arrange(Rh_annual) ->
+    srdb_rh
+  
+  srdb_rh <- get_warner_rh(srdb_rh)
+  srdb_rh <- get_tang(srdb_rh)
+  srdb_rh <- get_hashimoto(srdb_rh)
+}
 
+# get rh from landmodels for mgrhd data
+get_mgrhd_rh <- function() {
+  MGRhD <- clean_mgrhd(read_file('MGRhD.csv'))
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//casaclm_pool_flux_2000-2010_daily.nc", MGRhD)
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//corpse_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
+  mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//mimics_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
+}
 
 plan <- drake::drake_plan(
   lm_files = list.files("~/Data/Wieder/", pattern = "*.nc", full.names = TRUE),
@@ -134,5 +157,13 @@ plan <- drake::drake_plan(
   
   warner_dat = read_warner_rh("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif"),
   
-  latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
+  # this plot moved to the markdown file
+  # latplot = plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat)),
+  
+  # load the global monthly heterotrophic respiration data
+  MGRhD_landmodel = get_mgrhd_rh(),
+  srdb = read.csv("~/Documents/PNNL/srdb/srdb-data.csv"),
+  srdb_rh = get_srdb_rh(srdb)
 )
+
+make(plan)

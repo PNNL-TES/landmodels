@@ -53,13 +53,70 @@ srdb_rh <- drake::readd(srdb_rh)
 ```
 
 
+```{r}
+read.table("extdata/tang2020_rh.txt",
+           header = FALSE,
+           sep = ",",
+           col.names = c("Year", "Rh"),
+           comment.char = "#") %>% 
+  mutate(Model = "Tang", Type = "Benchmark") ->
+  tang_global_rh
+
+read.table("extdata/hashimoto2015_rh.txt",
+           header = FALSE,
+           sep = ",",
+           col.names = c("Year", "Rh"),
+           comment.char = "#") %>% 
+  mutate(Model = "Hashimoto", Type = "Benchmark") ->
+  hashimoto_global_rh
+
+landmodel_dat %>% 
+  # separate(time, c("Year", "Day"), sep = ".")
+  mutate(Year = floor(time)) %>% 
+  mutate(Year = ifelse(Year == 2011, 2010, Year)) %>%
+  mutate(Model = model) %>% 
+  select(Model, hr_PgC_yr, Year) %>% 
+  group_by(Model, Year) %>% 
+  summarise(Rh = sum(hr_PgC_yr)) %>% 
+  mutate(Type = "Land model") ->
+  land_global_rh
+```
+
+
+```{r}
+bind_rows(tang_global_rh,
+          hashimoto_global_rh,
+          tibble(Rh = 49.7, Year = 2010, Model = "Warner", Type = "Benchmark"),
+          land_global_rh
+          ) %>% 
+  ggplot(aes(Year, Rh, group = Model, col = Model)) +
+  geom_point() +
+  geom_line(aes(linetype = Type)) +
+  labs(y = expression(Global~annual~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+  scale_x_continuous(breaks = seq(1980, 2015, 5)) +
+  scale_colour_discrete(name  ="Model",
+                        breaks=c("Hashimoto", "Tang", "Warner", "casaclm", "corpse", "mimics"),
+                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS"))
+
+# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
+```
+
 
 ```{r plot model comparison}
+bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat) %>% 
+  filter(lat < 87.5) %>% 
+  mutate(type = case_when(type == "land model" ~ "Land model",
+                          TRUE ~ "Benchmark")) -> 
+  # rename(Type = type) ->
+  landmodel_bench_dat
 
 plot_landmodels_time(landmodel_dat)
 global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_dat)
-plot_latitude(bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat))
+# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
+plot_latitude(landmodel_bench_dat)
+# ggsave('outputs/Figure2.Rh_lat_comparison.jpg', width = 6, height = 4)
 ```
+
 
 ```{r}
 hashimoto_dat %>% 
@@ -94,31 +151,21 @@ srdb_rh %>%
 
 
 ```{r, fig.width=4, fig.height=8}
+
+lm_hashi <- lm(srdb_rh[!is.na(srdb_rh$hashi_rh),]$Rh_annual ~ srdb_rh[!is.na(srdb_rh$hashi_rh),]$hashi_rh)
+summary(lm_hashi)
+r2_hashi <- round(summary(lm_hashi)$adj.r.squared, 3)
+
+lm_tang <- lm(srdb_rh[!is.na(srdb_rh$tang_rh),]$Rh_annual ~ srdb_rh[!is.na(srdb_rh$tang_rh),]$tang_rh)
+summary(lm_tang)
+r2_tang <- round(summary(lm_tang)$adj.r.squared, 3)
+
+lm_warner <- lm(srdb_rh[!is.na(srdb_rh$warner_rh),]$Rh_annual ~ srdb_rh[!is.na(srdb_rh$warner_rh),]$warner_rh)
+summary(lm_warner)
+r2_warner <- round(summary(lm_warner)$adj.r.squared, 3)
+
 # palette: YlGnBu, RdBu
 plot_grid(
-  srdb_rh %>% 
-    dplyr::select(warner_rh, Rh_annual, Manipulation) %>% 
-    filter(Manipulation == "None") %>% 
-    na.omit() %>% 
-    ggplot(aes(warner_rh, Rh_annual)) +
-    geom_hex(col = "gray", bins = 20) +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
-    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
-    geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(Warner~R[H]~(g~C~m^{-2}~yr^{-1})),
-         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
-  
-  srdb_rh %>% 
-    dplyr::select(tang_rh, Rh_annual, Manipulation) %>% 
-    filter(Manipulation == "None") %>% 
-    na.omit() %>% 
-    ggplot(aes(tang_rh, Rh_annual)) +
-    geom_hex(col = "gray", bins = 20) +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
-    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
-    geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(Tang~R[H]~(g~C~m^{-2}~yr^{-1})),
-         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
   
   srdb_rh %>% 
     dplyr::select(hashi_rh, Rh_annual, Manipulation) %>% 
@@ -126,17 +173,148 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(hashi_rh, Rh_annual)) +
     geom_hex(col = "gray", bins = 20) +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
     geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(Hashimoto~R[H]~(g~C~m^{-2}~yr^{-1})),
-         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))),
+    labs(x = expression(Hashimoto~et~"al. (2015)"~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+    xlim(0, 800) +
+    annotate("text", x = 100, y = 2750,
+           label = expression(R^{2}~"="~0.103^"***"),
+           hjust = 0),
   
-  ncol = 1
+  srdb_rh %>% 
+    dplyr::select(tang_rh, Rh_annual, Manipulation) %>% 
+    filter(Manipulation == "None") %>% 
+    na.omit() %>% 
+    ggplot(aes(tang_rh, Rh_annual)) +
+    geom_hex(col = "gray", bins = 20) +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
+    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(Tang~et~"al. (2019)"~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+    xlim(0, 800) +
+    annotate("text", x = 100, y = 2750,
+           label = expression(R^{2}~"="~0.138^"***"),
+           hjust = 0),
+  
+  srdb_rh %>% 
+    dplyr::select(warner_rh, Rh_annual, Manipulation) %>% 
+    filter(Manipulation == "None") %>% 
+    na.omit() %>% 
+    ggplot(aes(warner_rh, Rh_annual)) +
+    geom_hex(col = "gray", bins = 20) +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
+    geom_abline(slope = 1, col = "red", linetype = "dashed", size = 1.5) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(Warner~et~"al. (2020)"~(g~C~m^{-2}~yr^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+    xlim(0, 800) +
+    annotate("text", x = 100, y = 2750,
+           label = expression(R^{2}~"="~0.175^"***"),
+           hjust = 0),
+  ncol = 1) ->
+  p_rh_reg
+
+```
+
+
+```{r Boots and compare annual Rh, fig.width=8, fig.height=8 }
+srdb_rh
+set.seed(20200611)
+N_SAMPLES <- 2500
+sample_size <- 20
+
+RESAMPLE <- function(n, x) { # no errors/sd inputs
+  mean(sample(x, n, replace = TRUE))
+}
+
+bootstrap_srdb_rh <- tibble(
+  a_measure_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, srdb_rh[!is.na(srdb_rh$Rh_annual),]$Rh_annual),
+  b_hashi_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, srdb_rh[!is.na(srdb_rh$hashi_rh),]$hashi_rh),
+  b_tang_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, srdb_rh[!is.na(srdb_rh$tang_rh),]$tang_rh),
+  b_warner_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, srdb_rh[!is.na(srdb_rh$warner_rh),]$warner_rh)
 )
 
-ggsave('outputs/Figure-annualRh-regression-all.jpg', width = 4, height = 8)
+# plot hashimoto comparison
+bootstrap_srdb_rh %>%
+  select(a_measure_rh, b_hashi_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.70, 0.75)) +
+  coord_cartesian(xlim = c(250, 875)) +
+  scale_fill_manual("",
+    labels = c(expression(Measured~R[H]), expression(Hashimoto~et~"al."~(2015))),
+    values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
+  annotate("text", x = 600, y = 0.0075,
+           label = "p > 0.05",
+           hjust = 0) ->
+  p_hashi
+
+# plot tang comparison
+bootstrap_srdb_rh %>%
+  select(a_measure_rh, b_tang_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.70, 0.75)) +
+  coord_cartesian(xlim = c(250, 875)) +
+  scale_fill_manual("",
+    labels = c(expression(Measured~R[H]), expression(Tang~et~"al."~(2019))),
+    values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
+  annotate("text", x = 600, y = 0.0075,
+           label = "p > 0.05",
+           hjust = 0) ->
+  p_tang
+
+# plot warner comparison
+bootstrap_srdb_rh %>%
+  select(a_measure_rh, b_hashi_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.70, 0.75)) +
+  coord_cartesian(xlim = c(250, 875)) +
+  scale_fill_manual("",
+     labels = c(expression(Measured~R[H]), expression(Warner~et~"al."~(2020))),
+     values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
+  annotate("text", x = 600, y = 0.0075,
+           label = "p > 0.05",
+           hjust = 0) ->
+  p_warner
+
+# combine 
+plot_grid(p_hashi, p_tang, p_warner,
+          ncol = 1) ->
+  p_rh_com
+
+plot_grid(p_rh_reg, p_rh_com,
+          rel_widths = c(1.15, 1))
+
+# ggsave('outputs/Figure-annualRh-regression-all.jpg', width = 8, height = 8)
 ```
+
+
 
 ```{r}
 # over all - annual Rh comparison
@@ -155,11 +333,24 @@ srdb_rh %>%
         axis.text.x = element_text(angle = 0, vjust = 0.0, size = 10, face = "bold")) +
   labs(y = expression(R[H]~(g~C~m^2~year^{-1})))
 
-ggsave('outputs/Figure-annualRh-comparison-all.jpg', width = 4, height = 3)
+# ggsave('outputs/Figure-annualRh-comparison-all.jpg', width = 4, height = 3)
 
 ```
 
-```{r, fig.width=8, fig.height=8}
+```{r, fig.width=5, fig.height=8}
+lm_casa <- lm(MGRhD[!is.na(MGRhD$casaclm),]$Rh_Norm ~ MGRhD[!is.na(MGRhD$casaclm),]$casaclm)
+summary(lm_casa)
+r2_casa <- round(summary(lm_casa)$adj.r.squared, 3)
+
+lm_corpse <- lm(MGRhD[!is.na(MGRhD$corpse),]$Rh_Norm ~ MGRhD[!is.na(MGRhD$corpse),]$corpse)
+summary(lm_corpse)
+r2_corpse <- round(summary(lm_corpse)$adj.r.squared, 3)
+
+lm_mimics <- lm(MGRhD[!is.na(MGRhD$mimics),]$Rh_Norm ~ MGRhD[!is.na(MGRhD$mimics),]$mimics)
+summary(lm_mimics)
+r2_mimics <- round(summary(lm_mimics)$adj.r.squared, 3)
+
+
 plot_grid(
   MGRhD %>% 
     dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, casaclm, Manipulation) %>% 
@@ -168,13 +359,54 @@ plot_grid(
     na.omit() %>% 
     ggplot(aes(casaclm, Rh_Norm)) +
     geom_hex() +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[H])),
+    labs(x = expression('CASA-CNP'~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H])) +
+    xlim(0, 8) +
+    annotate("text", x = 0.5, y = 13.5,
+           label = expression(R^{2}~"="~0.017^"***"),
+           hjust = 0),
   
   MGRhD %>% 
+    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, corpse, Manipulation) %>% 
+    filter(corpse > 0 & Manipulation == "None") %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(corpse, Rh_Norm)) +
+    geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H]~(g~C~m^{2}~day^{-1}))) +
+    xlim(0, 8) +
+    annotate("text", x = 0.5, y = 13.5,
+           label = expression(R^{2}~"="~0.003^"***"),
+           hjust = 0),
+  
+  MGRhD %>% 
+    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, mimics, Manipulation) %>% 
+    filter(mimics > 0 & Manipulation == "None") %>% 
+    # filter(Meas_Year < 2000) %>% 
+    na.omit() %>% 
+    ggplot(aes(mimics, Rh_Norm)) +
+    geom_hex() +
+    scale_fill_distiller(palette = "YlGnBu", name = "Count") +
+    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_smooth(method = "lm", col = "orange") +
+    labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),
+         y = expression(Measured~R[H])) +
+    xlim(0, 8) +
+    annotate("text", x = 0.5, y = 13.5,
+           label = expression(R^{2}~"="~0.032^"***"),
+           hjust = 0),
+  ncol = 1) ->
+  p_mgrsd_rh_reg
+
+# regression between CASA, CORPSE, MIMICS
+MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
     filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
     # filter(Meas_Year < 2000) %>% 
@@ -185,22 +417,9 @@ plot_grid(
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm") +
     labs(x = expression(CASACLM~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(MIMICS~predicted~R[H])),
-  
-  MGRhD %>% 
-    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, corpse, Manipulation) %>% 
-    filter(corpse > 0 & Manipulation == "None") %>% 
-    # filter(Meas_Year < 2000) %>% 
-    na.omit() %>% 
-    ggplot(aes(corpse, Rh_Norm)) +
-    geom_hex() +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
-    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
-    geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[H]~(g~C~m^{2}~day^{-1}))),
-  
-  MGRhD %>% 
+         y = expression(MIMICS~predicted~R[H]))
+
+MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
     filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
     # filter(Meas_Year < 2000) %>% 
@@ -211,22 +430,9 @@ plot_grid(
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1}))),
-  
-  MGRhD %>% 
-    dplyr::select(Meas_Year, Meas_Month2, Meas_DOY, Rh_Norm, mimics, Manipulation) %>% 
-    filter(mimics > 0 & Manipulation == "None") %>% 
-    # filter(Meas_Year < 2000) %>% 
-    na.omit() %>% 
-    ggplot(aes(mimics, Rh_Norm)) +
-    geom_hex() +
-    scale_fill_distiller(palette = "YlGnBu", name = "Count (n)") +
-    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
-    geom_smooth(method = "lm", col = "orange") +
-    labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(Measured~R[H])),
-  
-  MGRhD %>% 
+         y = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})))
+
+MGRhD %>% 
     dplyr::select(casaclm, corpse, mimics) %>% 
     filter(corpse > 0 & casaclm > 0 & mimics > 0) %>% 
     # filter(Meas_Year < 2000) %>% 
@@ -237,13 +443,101 @@ plot_grid(
     geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
-         y = expression(CASACLM~Predicted~R[H])),
-  
-  ncol = 2
+         y = expression(CASACLM~Predicted~R[H]))
+
+```
+
+
+```{r Boots and compare annual Rh, fig.width=8, fig.height=8 }
+MGRhD
+set.seed(20200611)
+N_SAMPLES <- 2500
+sample_size <- 20
+
+bootstrap_mgrsb_rh <- tibble(
+  a_measure_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, MGRhD[!is.na(MGRhD$Rh_Norm),]$Rh_Norm),
+  b_casa_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, MGRhD[!is.na(MGRhD$casaclm),]$casaclm),
+  b_corpse_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, MGRhD[!is.na(MGRhD$corpse),]$corpse),
+  b_mimics_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, MGRhD[!is.na(MGRhD$mimics),]$mimics)
 )
 
-ggsave('outputs/Figure-monthRh-regression.jpg', width = 8, height = 8)
+# plot casa comparison
+bootstrap_mgrsb_rh %>%
+  select(a_measure_rh, b_casa_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.8, 0.75)) +
+  coord_cartesian(xlim = c(0.5, 3.5)) +
+  scale_fill_manual("",
+    labels = c(expression(Measured~R[H]), expression("CASA-CNP")),
+    values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
+  annotate("text", x = 2.55, y = 0.75,
+           label = "p < 0.05",
+           hjust = 0) ->
+  p_casa
+
+# plot corpse comparison
+bootstrap_mgrsb_rh %>%
+  select(a_measure_rh, b_corpse_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.8, 0.75)) +
+  coord_cartesian(xlim = c(0.5, 3.5)) +
+  scale_fill_manual("",
+    labels = c(expression(Measured~R[H]), expression("CORPSE")),
+    values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
+  annotate("text", x = 2.55, y = 0.75,
+           label = "p < 0.05",
+           hjust = 0) ->
+  p_corpse
+
+# plot mimics comparison
+bootstrap_mgrsb_rh %>%
+  select(a_measure_rh, b_mimics_rh) %>% 
+  gather(Rh_type) %>% 
+  ggplot(aes(value, fill = Rh_type)) +
+  # theme_cowplot() +
+  geom_density(stat = "density", alpha = 0.65) +
+  theme(legend.position = c(0.8, 0.75)) +
+  coord_cartesian(xlim = c(0.5, 3.5)) +
+  scale_fill_manual("",
+     labels = c(expression(Measured~R[H]), expression("MIMICS")),
+     values=c("skyblue", "#E41A1C")) +
+  theme(
+    legend.title = element_blank(),
+    legend.text.align = 0) +
+  ylab("Density") +
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
+  annotate("text", x = 2.55, y = 0.75,
+           label = "p < 0.05",
+           hjust = 0) ->
+  p_mimics
+
+# combine 
+plot_grid(p_casa, p_corpse, p_mimics,
+          ncol = 1) ->
+  p_mgrsd_rh_com
+
+plot_grid(p_mgrsd_rh_reg, p_mgrsd_rh_com,
+          rel_widths = c(1.15, 1))
+
+# ggsave('outputs/Figure-monthRh-regression.jpg', width = 8, height = 8)
 ```
+
 
 
 ## Rh by month in different models
@@ -265,7 +559,7 @@ MGRhD %>%
         axis.text.x = element_text(angle = 0, vjust = 0.0, size = 10, face = "bold")) +
   labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
 
-ggsave('outputs/Figure-monthRh-comparison-all.jpg', width = 4, height = 3)
+# ggsave('outputs/Figure-monthRh-comparison-all.jpg', width = 4, height = 3)
 
 # seperate by group
 MGRhD %>% 
@@ -293,6 +587,6 @@ MGRhD %>%
         axis.text.x = element_blank()) +
   labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
 
-ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 6, height = 7)
+# ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 6, height = 7)
   
 ```

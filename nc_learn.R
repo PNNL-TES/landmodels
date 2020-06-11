@@ -3,9 +3,13 @@
 # http://geog.uoregon.edu/GeogR/topics/netCDF-in-R.html
 #****************************************************************************************************
 library(ncdf4)
+library(raster)
+library(tiff)
+library(rgdal)
 
 ncname <- "~/Data/Hashimoto/RH_yr_Hashimoto2015.nc"
 # ncname <- "~/Data/Tang_Rh/RH.RF.720.360.1980.2016.Yearly.nc" 
+ncname <- "~/Data/Wieder/casaclm_pool_flux_2000-2010_daily.nc"
 dname <- "co2"  # note: tas means air temperature 
 
 # open a netCDF file
@@ -119,6 +123,7 @@ head(na.omit(tmp_df01), 10)
 # lean raster package
 #****************************************************************************************************
 warner_rh <- raster("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif")
+# warner_rh_dat <- rasterToPoints(warner_rh)
 
 # cellStats(warner_rh, min, na.rm = TRUE)
 # view Coordinate Reference System (CRS)
@@ -135,4 +140,18 @@ plot(warner_rh,
      main="Rh from Warner")
 
 image(warner_rh)
+custom_bins <- seq(0, 1200, 200)
 
+DSM_HARV_df <- DSM_HARV_df %>%
+  mutate(fct_elevation_2 = cut(HARV_dsmCrop, breaks = custom_bins))
+
+unique(DSM_HARV_df$fct_elevation_2)
+
+
+ggplot() +
+  geom_raster(data = warner_rh , aes(x = x, y = y)) + 
+  coord_quickmap()
+
+# plot tiff data
+warner_tif <- raster("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif")
+plot(warner_tif)

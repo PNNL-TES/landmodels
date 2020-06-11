@@ -98,7 +98,8 @@ read_landmodels <- function(lm_files) {
     nc <- nc_open(f)
     landarea <- ncvar_get(nc, "landarea")  # km2
     cellMissing <- !ncvar_get(nc, "cellMissing")
-    time <- ncvar_get(nc, "time")[1:365]
+    # time <- ncvar_get(nc, "time")[1:365] # only 1 year
+    time <- ncvar_get(nc, "time") # all data
     latitude <- ncvar_get(nc, "lat")
     
     modelname <- strsplit(basename(f), "_")[[1]][1]

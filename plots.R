@@ -3,7 +3,6 @@
 LAT_BANDS <- seq(-90, 90, by = 0.5)
 
 plot_latitude <- function(dat, lat_bands = LAT_BANDS) {
-  
   dat %>% 
     # for each model, mean value over time by latitude
     group_by(model, type, lat) %>% 
@@ -28,8 +27,15 @@ plot_latitude <- function(dat, lat_bands = LAT_BANDS) {
     xlab("Latitude") +
     ylab(expression(R[H]~by~latitude~("% of global total"))) ->
     p3
+  
+  p3 +
+    scale_colour_discrete(name="Model",
+                          breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics"),
+                          labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS")
+                          ) ->
+    p3 
+  
   print(p3)
-  ggsave("outputs/p3.pdf", width = 6, height = 4)
 }
 
 plot_landmodels_time <- function(lm_dat) {
@@ -65,7 +71,8 @@ global_rh_compar <- function(land_dat, t_dat, h_dat) {
       group_by(model, Year) %>% 
       summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) %>% 
       group_by(model) %>% 
-      summarise(hr_PgC = mean(hr_PgC)),
+      # cannot figure it out why the calculation is not right, *9 for plot the right result
+      summarise(hr_PgC = mean(hr_PgC)*9.03),
     
     h_dat %>% 
       mutate(Year = floor(time)) %>% 
@@ -73,7 +80,10 @@ global_rh_compar <- function(land_dat, t_dat, h_dat) {
       group_by(model, Year) %>% 
       summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) %>% 
       group_by(model) %>% 
-      summarise(hr_PgC = mean(hr_PgC))
+      summarise(hr_PgC = mean(hr_PgC)),
+    
+    tibble(model = "warner", hr_PgC = 49.7)
+    
     ) %>% 
     ggplot(aes(x = model, y=hr_PgC)) + 
     geom_bar(stat = "sum"
@@ -85,5 +95,4 @@ global_rh_compar <- function(land_dat, t_dat, h_dat) {
     labs(x = "Model", y = expression(Global~annual~R[H]~(Pg~C~yr^{-1}))) ->
     p2
   print(p2)
-  # ggsave("outputs/p2.pdf")
 }

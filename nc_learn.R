@@ -119,6 +119,7 @@ tmp_df01 <- data.frame(cbind(lonlat_time,tmp_vec))
 names(tmp_df01) <- c("lon","lat","time",paste(dname,as.character(m), sep="_"))
 head(na.omit(tmp_df01), 10)
 
+
 #****************************************************************************************************
 # lean raster package
 #****************************************************************************************************
@@ -155,3 +156,61 @@ ggplot() +
 # plot tiff data
 warner_tif <- raster("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif")
 plot(warner_tif)
+
+
+#****************************************************************************************************
+# test get_landm 
+#****************************************************************************************************
+# get Rh from land models
+source("functions.R")
+source("main.R")
+
+f <- "/Users/jian107/Data/Wieder//corpse_pool_flux_2000-2010_daily.nc"
+
+get_landm <- function(){
+  landm <- nc_open(f)
+  mgrhd <- clean_mgrhd(read_file('MGRhD.csv'))
+  mgrhd %>% 
+    filter(Study_number == 17) ->
+    mgrhd
+  
+  var_rh <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
+  modelname <- strsplit(basename(f), "_")[[1]][1]
+  
+  # i = 50
+  for (i in 1:nrow(mgrhd)) {
+    target_lat <- mgrhd$Latitude[i]
+    target_lon <- mgrhd$Longitude[i]
+    target_year <- mgrhd$Meas_Year[i]
+    target_doy <- mgrhd$Meas_DOY[i]
+    target_time <- target_year + target_doy/365
+    
+    # find the locate of data in tang_rh for ith Rh_annual
+    lat <- ncvar_get(landm, "lat")
+    ilat <- which.min(abs(lat - target_lat))
+    
+    lon_orig <- ncvar_get(landm, "lon") 
+    lon <- ifelse(lon_orig <= 180, lon_orig, lon_orig - 360)
+    ilon <- which.min(abs(lon - target_lon))
+    
+    time <- as.numeric(ncvar_get(landm, "time"))
+    itime <- which.min(abs(time - target_time))
+    # min_time <- min(abs(time - target_time)) # need change
+    doy <- time %% 1 * 364.25 + 1
+    idoy <- which(abs(doy - target_doy) < 3)
+    
+    Rh_cell <- ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, itime), count = c(1, 1, 1))
+    Rh_avg <- mean(ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, 1), count = c(1, 1, -1))[idoy], na.rm=T)
+    
+    mgrhd[i, modelname] <- ifelse(target_time > 2011 | target_time < 2000, Rh_avg, Rh_cell) # since model only have prediction from 2000-2010, other times using average
+    
+    print(paste0("*****", i))
+  }
+  return(mgrhd)
+}
+
+get_landm() ->
+  test_data
+
+test_data %>% 
+  dplyr::select(Rh_Norm, corpse, Latitude, Longitude, Meas_Year, Meas_Month2, Meas_DOY)

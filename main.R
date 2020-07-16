@@ -1,12 +1,13 @@
 # Visualize models' global HR
-
 library(tibble)
-library(tidyr)
-library(drake)
-library(dplyr)
+library(lubridate)
+library(kableExtra)
 library(ggplot2)
 library(raster)
 library(ncdf4)
+library(tidyr)
+library(dplyr)
+library(drake)
 theme_set(theme_bw())
 
 DATA_DIR <- 'extdata'
@@ -140,7 +141,8 @@ get_srdb_rh <- function(dat) {
 
 # get rh from landmodels for mgrhd data
 get_mgrhd_rh <- function() {
-  MGRhD <- clean_mgrhd(read_file('MGRhD.csv'))
+  MGRhD_raw <- read.csv(file_in(paste0(DATA_DIR,'/MGRhD.csv')))
+  MGRhD <- clean_mgrhd(MGRhD_raw)
   mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//casaclm_pool_flux_2000-2010_daily.nc", MGRhD)
   mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//corpse_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
   mgrhd_landmodel <- get_landm("/Users/jian107/Data/Wieder//mimics_pool_flux_2000-2010_daily.nc", mgrhd_landmodel)
@@ -163,7 +165,10 @@ plan <- drake::drake_plan(
   # load the global monthly heterotrophic respiration data
   MGRhD_landmodel = get_mgrhd_rh(),
   srdb = read.csv("~/Documents/PNNL/srdb/srdb-data.csv"),
-  srdb_rh = get_srdb_rh(srdb)
+  srdb_rh = get_srdb_rh(srdb),
+  # load CMIP6 data
+  CMIP6_perc = read_file('CMIP6_percent_of_global_RH.csv'),
+  cmip6_global = read_file('CMIP6_global_RH.csv')
 )
 
 make(plan)

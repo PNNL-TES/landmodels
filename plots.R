@@ -1,8 +1,5 @@
 # Plots
-
-LAT_BANDS <- seq(-90, 90, by = 0.5)
-
-plot_latitude <- function(dat, lat_bands = LAT_BANDS) {
+prep_latitude_data <- function(dat, lat_bands = LAT_BANDS) {
   dat %>% 
     # for each model, mean value over time by latitude
     group_by(model, type, lat) %>% 
@@ -19,23 +16,7 @@ plot_latitude <- function(dat, lat_bands = LAT_BANDS) {
     mutate(hr_gC_m2_yr_percent = hr_gC_m2_yr / sum(hr_gC_m2_yr, na.rm = TRUE)) ->
     plotting_data
   
-  plotting_data %>% 
-    ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
-    geom_line() +
-    scale_size_manual(values = c(1.25, 0.75)) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
-    xlab("Latitude") +
-    ylab(expression(R[H]~by~latitude~("% of global total"))) ->
-    p3
-  
-  p3 +
-    scale_colour_discrete(name="Model",
-                          breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics"),
-                          labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS")
-                          ) ->
-    p3 
-  
-  print(p3)
+  return(plotting_data)
 }
 
 plot_landmodels_time <- function(lm_dat) {
@@ -65,7 +46,7 @@ global_rh_compar <- function(land_dat, t_dat, h_dat) {
       summarise(hr_PgC = mean(hr_PgC)),
     
     t_dat %>% 
-      select(-hr) %>% 
+      dplyr::select(-hr) %>% 
       mutate(Year = floor(time)) %>% 
       na.omit() %>%
       group_by(model, Year) %>% 

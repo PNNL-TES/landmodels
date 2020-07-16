@@ -1,0 +1,408 @@
+---
+title: "Miscellanies"
+author: "Jinshi"
+date: "6/26/2020"
+output: html_document
+---
+
+```{r test Tang 2019 global annual Rh}
+tang_dat %>% 
+  dplyr::select(-hr) %>% 
+  mutate(Year = floor(time)) %>% 
+  na.omit() %>%
+  group_by(model, Year) %>% 
+  summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) %>% 
+  ggplot(aes(Year, hr_PgC)) +
+  geom_point() +
+  geom_line()
+```
+
+
+```{r time series by site, message=FALSE, fig.height=5, fig.width=8}
+# Rh_site_comp(MGRhD, 3157)
+# plot those sites with p_res > 0.05
+res_site %>%
+  filter(p_t_test >= 0.05) %>%
+  select(Study_number)
+
+for(i in 1:20){
+  res_site %>% 
+    filter(p_t_test >= 0.05) %>% 
+    select(Study_number) %>% 
+    arrange(Study_number) ->
+    sub_site
+  
+  Rh_site_comp(MGRhD, sub_site$Study_number[i])
+  print(paste0("*****", i))
+}
+```
+
+
+```{r time series by site - overestimate, message=FALSE, fig.height=5, fig.width=8}
+# plot those sites with p_res > 0.05 & MBE > 0
+res_site %>%
+  filter(p_t_test < 0.05 & MBE > 0) %>%
+  select(Study_number)
+
+for(i in 1:177){
+  res_site %>% 
+    filter(p_t_test < 0.05 & MBE > 0) %>% 
+    select(Study_number) %>% 
+    arrange(Study_number) ->
+    sub_site
+  
+  Rh_site_comp(MGRhD, sub_site$Study_number[i])
+  print(paste0("*****", i))
+}
+```
+
+
+```{r time series by site - underestimate, message=FALSE, fig.height=5, fig.width=8}
+# plot those sites with p_res > 0.05 & MBE < 0
+res_site %>%
+  filter(p_t_test < 0.05 & MBE < 0) %>%
+  select(Study_number)
+
+for(i in 1:61){
+  res_site %>% 
+    filter(p_t_test < 0.05 & MBE < 0) %>% 
+    select(Study_number) %>% 
+    arrange(Study_number) ->
+    sub_site
+  
+  Rh_site_comp(MGRhD, sub_site$Study_number[i])
+  print(paste0("*****", i))
+}
+```
+
+
+
+```{r, message=FALSE, fig.height=3, fig.width=8}
+# need check
+Rh_site_comp(MGRhD, 586) 
+Rh_site_comp(MGRhD, 8439)
+
+# well matched
+Rh_site_comp(MGRhD, 148)
+Rh_site_comp(MGRhD, 5113)
+
+# overestimate
+Rh_site_comp(MGRhD, 6070) # no residual trend
+Rh_site_comp(MGRhD, 17)   # negative trend
+Rh_site_comp(MGRhD, 3581) # negative trend
+Rh_site_comp(MGRhD, 8439) # negative trend
+Rh_site_comp(MGRhD, 7282) # possitive trend
+
+
+# underestimate
+Rh_site_comp(MGRhD, 7898)
+Rh_site_comp(MGRhD, 7904)
+Rh_site_comp(MGRhD, 8697)
+Rh_site_comp(MGRhD, 8088)
+Rh_site_comp(MGRhD, 10342)
+```
+
+
+```{r theory diagram}
+# function for A
+Rh_site_res_diag_A <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point(col = "white") +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(2, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    scale_y_continuous(breaks = c(1.5, 2, 2.5),
+                       labels = c(-0.5, 0, 0.5)) +
+    theme(legend.position = "none",
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+# function for B
+Rh_site_res_diag_B <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data
+  
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(0, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    theme(legend.position = c(0.65, 0.35),
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+# function for b
+Rh_site_res_diag <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data
+    
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(0, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    theme(legend.position = "none",
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+# function for C
+Rh_site_res_diag_C <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data 
+  
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point(col = "white") +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(3.5, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    scale_y_continuous(breaks = c(2, 2.5, 3, 3.5),
+                       labels = c(-1.5, -1, -0.5, 0)) +
+    theme(legend.position = "none",
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+# function for Ac
+Rh_site_res_diag_Ac <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data
+    
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point(col = "white") +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(1, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    scale_y_continuous(breaks = c(-1, 0, 1, 2, 3),
+                       labels = c(-2, -1, 0, 1, 2)) +
+    theme(legend.position = "none",
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+# function for Cc
+Rh_site_res_diag_Cc <- function(sdata, study_number) {
+  # plot dif vs predicted value
+  sdata %>% 
+    filter(Study_number == study_number) %>% 
+    filter(!is.na(Rh_Norm)) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm) %>%
+    tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Rh_Norm) %>%
+    group_by(Model, Meas_DOY) %>% 
+    summarise(Rh_dif = mean(Rh_dif), Rh_Norm = mean(Rh_Norm)) ->
+    sum_data
+    
+  sum_data %>% 
+    ggplot(aes(x=Rh_Norm, y=Rh_dif, col = Model)) +
+    geom_point(col = "white") +
+    geom_smooth(method = "lm", se = FALSE, col = "red") +
+    geom_hline(yintercept = c(3, mean(sum_data$Rh_dif)),
+               col=c("blue", "black"),
+               linetype = c("twodash", "solid"),
+               size = 1) +
+    labs(y = expression(Residual),
+         x = expression(Measured~R[H]~(g~C~m^{-2}~day^{-1}))) +
+    # custome color
+    scale_color_discrete(name="",
+                         breaks=c("CASACNP", "CORPSE", "MIMICS"),
+                         labels=c("CASA-CNP", "CORPSE", "MIMICS")) +
+    scale_color_manual(values=c("red", "orange4", "springgreen4")) +
+    scale_y_continuous(breaks = c(-1, 0, 1, 2, 3),
+                       labels = c(-4, -3, -2, -1, 0)) +
+    theme(legend.position = "none",
+          legend.title = element_blank()) ->
+    p_dif_pred
+  
+  # print figure
+  print(p_dif_pred)
+}
+
+
+
+Rh_site_res_diag_A (MGRhD, 6070) -> Aa
+Rh_site_res_diag_B (MGRhD, 6070) -> Ba
+Rh_site_res_diag_C (MGRhD, 6070) -> Ca
+
+Rh_site_res_diag (MGRhD, 5113) -> Ab
+Rh_site_res_diag (MGRhD, 10645) -> Bb
+Rh_site_res_diag (MGRhD, 9343) -> Cb
+
+Rh_site_res_diag_Ac (MGRhD, 6718) -> Ac
+Rh_site_res_diag (MGRhD, 7583) -> Bc
+Rh_site_res_diag_Cc (MGRhD, 6718) -> Cc
+
+```
+
+
+```{r, fig.width=8, fig.height=7}
+res_site %>%
+  filter(p_t_test < 0.05 & MBE > 0) %>%
+  select(Study_number)
+
+res_site %>%
+  filter(p_t_test < 0.05 & MBE > 0 & slope_res < 0 & slope_p_res < 0.05) %>%
+  select(Study_number)
+
+res_site %>%
+  filter(p_t_test < 0.05 & MBE > 0 & slope_res > 0 & slope_p_res < 0.05) %>%
+  select(Study_number)
+
+
+plot_grid(
+  Aa, Ba, Ca,
+  Ab, Bb, Cb,
+  Ac, Bc, Cc,
+  labels = c("0(0%)", "37(14%)", "0(0%)",
+             "20(8%)", "99(38%)", "61(24%)",
+             "0(0%)", "41(16%)", "0(0%)"),
+  label_size = 12.5,
+  vjust = 12,
+  hjust = c(-1.5, -0.85, -1.5,
+            -1, -1, -1,
+            -1.25, -0.85, -1.35)
+  )
+
+# ggsave('outputs/Figure-res_comp.jpg', width = 8, height = 7)
+```
+
+
+```{r, include=FALSE}
+lm_by_site <- slr_landmodels_site(MGRhD)
+```
+
+
+```{r}
+lm_by_site %>% 
+  # filter(slope_mimics < 5 & slope_mimics > -5) %>% 
+  ggplot(aes(x = inter_mimics, y = slope_mimics, col = R2_mimics)) +
+  geom_point()
+
+lm_by_site %>% 
+  filter(slope_mimics < 5 & slope_mimics > -5) %>% 
+  ggplot(aes(x = R2_mimics, y = slope_mimics, col = slope_p_mimics)) +
+  geom_point()
+```
+
+

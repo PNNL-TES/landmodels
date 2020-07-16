@@ -5,6 +5,8 @@
 # One number for each year in the dataset, i.e. 11 numbers for each grid cell
 cat("Running cdo...")
 
+# NOTE: This assumes there is a folder called `/data/Wieder` in /landmodels with the raw files
+
 system("cdo -yearmean data/Wieder/mimics_pool_flux_2000-2010_daily.nc data/Wieder/mimics_pool_flux_2000-2010_mean.nc")
 system("cdo -yearmean data/Wieder/corpse_pool_flux_2000-2010_daily.nc data/Wieder/corpse_pool_flux_2000-2010_mean.nc")
 system("cdo -yearmean data/Wieder/casaclm_pool_flux_2000-2010_daily.nc data/Wieder/casaclm_pool_flux_2000-2010_mean.nc")

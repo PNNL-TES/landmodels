@@ -5,8 +5,6 @@ output: html_document
 
 # loading necessary packages
 ```{r preliminaries, message=FALSE, echo=FALSE}
-library(tidyr)
-library(dplyr)
 library(readxl)
 library(styler)
 library(ggplot2)
@@ -25,8 +23,17 @@ library(leaflet)
 library(sp)
 library(RColorBrewer)
 library(hexbin)
+library(tidyr)
+library(dplyr)
+library(randomForest)
+library(neuralnet)
 # Source all needed functions
 source('plots.R')
+source('functions.R')
+
+DATA_DIR <- 'extdata'
+OUT_DIR <- 'outputs'
+
 # set data and outputs file direction
 # Set chunks defaults; these options will be applied to all subsequent chunks
 knitr::opts_chunk$set(results = 'hide', message = TRUE, include = TRUE, 
@@ -42,6 +49,10 @@ hashimoto_dat <- drake::readd(hashimoto_dat)
 tang_dat <- drake::readd(tang_dat)
 warner_dat <- drake::readd(warner_dat)
 MGRhD <- drake::readd(MGRhD_landmodel)
+# remove 0 values
+MGRhD %>% 
+  filter(corpse != 0 & casaclm != 0 & mimics != 0) ->
+  MGRhD
 MGRhD %>% 
   filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
   filter(Meas_Year >= 2000 & Meas_Year <= 2010 & !is.na(Rh_Norm)) ->
@@ -49,11 +60,52 @@ MGRhD %>%
 srdb <- drake::readd(srdb)
 srdb_rh <- drake::readd(srdb_rh)
 # return those with annual Rh
+# cmip6
+CMIP6_perc <- drake::readd(CMIP6_perc)
+CMIP6_global <- drake::readd(cmip6_global)
+MGRhD_SRDB <- read.csv("../MGRsD/outputs/MGRsD_SRDBV5.csv")
+Global_mat_map <- read.csv("../SRDBV5/data/summarized_climate.csv", comment.char = "#")
 
+# left_join(MGRhD,
+#           MGRhD_SRDB %>% select(Study_number, Site_ID, Meas_Year, Meas_Month2, Tm_del, Pm_del, Tannual_del, Pannual_del, MAT_Del, MAP_Del),
+#           by = c('Study_number', 'Site_ID', 'Meas_Year', "Meas_Month2"))
 ```
 
 
-```{r}
+## Data processing - residual
+```{r calculate residual, include=FALSE}
+# Calculate residue as the differences between model estimated Rh and field measured Rh
+MGRhD %>% 
+  filter(!is.na(Rh_Norm) & !is.na(casaclm) & (casaclm > 0)) %>% 
+  dplyr::select(Study_number, Rh_Norm, casaclm, corpse, mimics, Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP) %>% 
+  filter(Study_number %!in% c(531, 586, 900, 2095, 5309)) %>% # exclude study with < 5 measurements
+  tidyr::gather(key = "Model", value = "Rh_model", -Study_number, -Rh_Norm, -Latitude, -Longitude, -Biome, -Ecosystem_type, -Leaf_habit, -MAT, -MAP) %>% 
+  mutate(Residuals = Rh_model - Rh_Norm) ->
+  residual_data
+
+# using slr_residual_site function to get the linear regression between modeled Rh and field measured Rh
+res_site <- slr_residual_site(residual_data)  
+colnames(res_site)[1] <- "Study_number"
+
+res_site %>% 
+  mutate(t_group = case_when(
+    p_t_test >= 0.05 ~ "Well estimated (n=20)",
+    p_t_test < 0.05 & MBE > 0 ~ "Over estimated (n=177)",
+    p_t_test < 0.05 & MBE < 0 ~ "Under estimated (n=61)")) %>% 
+  mutate(Latitude = round(Latitude*2)/2+0.25, Longitude = round(Longitude*2)/2+0.25) ->
+  res_site
+
+
+left_join(res_site, Global_mat_map, by = c("Latitude", "Longitude")) ->
+  res_site
+
+# Using left join to get residual t-test group of each site
+left_join(MGRhD, res_site %>% dplyr::select(Study_number, t_group), by = "Study_number") ->
+  MGRhD
+```
+
+## Load other global Rh data
+```{r load Tang, Hashimoto, and CMIP6 data}
 read.table("extdata/tang2020_rh.txt",
            header = FALSE,
            sep = ",",
@@ -73,21 +125,119 @@ read.table("extdata/hashimoto2015_rh.txt",
 landmodel_dat %>% 
   # separate(time, c("Year", "Day"), sep = ".")
   mutate(Year = floor(time)) %>% 
-  mutate(Year = ifelse(Year == 2011, 2010, Year)) %>%
+  mutate(Year = ifelse(Year == 2011, 2010, Year)) %>% # 2011 has only 1 day of data, and it should be 2010
   mutate(Model = model) %>% 
-  select(Model, hr_PgC_yr, Year) %>% 
+  dplyr::select(Model, hr_PgC_yr, Year) %>% 
   group_by(Model, Year) %>% 
   summarise(Rh = sum(hr_PgC_yr)) %>% 
   mutate(Type = "Land model") ->
   land_global_rh
+
+# CMIP6 data
+CMIP6_global %>% 
+  mutate(Rh = global_value / 10e15*1000,
+         Model = model, Type = "Land model", Year = year) %>% 
+  filter(Year < 2016 & Year > 1980) %>% 
+  filter(Rh > 30) %>% 
+  dplyr::select(Year, Rh, Model, Type) %>% 
+  group_by(Year, Model, Type) %>% 
+  summarise(Rh = mean(Rh)) ->
+  CMIP6_global_5models
+
+# Something is not right for CESM2 model in 2013, remove these two data points
+CMIP6_global_5models[CMIP6_global_5models$Year == 2013 & CMIP6_global_5models$Model == "CESM2",]$Rh <- NA
+CMIP6_global_5models[CMIP6_global_5models$Year == 2013 & CMIP6_global_5models$Model == "CESM2-WACCM",]$Rh <- NA
+
+CMIP6_global_5models %>% 
+  na.omit() ->
+  CMIP6_global_5models
 ```
 
 
+## create a map
+```{r, fig.width=6, fig.height=3}
+# map to show the Rh sites
+bbox <- make_bbox(lon = c(-160, 160), lat = c(-50, 70)) # make a coordinate box 
+map <- get_map(location = bbox, source = "stamen", maptype = "terrain") # load map from online
+
+bind_rows(
+  srdb_rh %>% 
+    dplyr::select(Latitude, Longitude) %>% 
+    dplyr::count(Latitude, Longitude) %>% 
+    mutate(Data = "SRDB"),
+
+  MGRhD %>% 
+    filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
+    dplyr::select(Latitude, Longitude) %>% 
+    dplyr::count(Latitude, Longitude) %>% 
+    mutate(n = ceiling(n/12), Data = "MGRsD")) ->
+  map_data
+
+ggmap(map) + 
+  geom_point(data = map_data, aes(x = Longitude, y = Latitude, size = n, shape = Data, col = Data), 
+             alpha = 0.6) + 
+  scale_shape_manual(values = c(1, 4)) +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) +
+  scale_size_continuous (name = "Sites (n)")  
+
+# ggsave('outputs/Figure1.Sites_distribution.jpg', width = 6, height = 3)
+# sort(unique(counties$region))
+ggplot(data = map_data("world", region = ".", exact = FALSE)) + 
+  geom_polygon(aes(x = long, y = lat, group = group),
+               color = "white", fill = 'gray') + 
+  guides(fill=FALSE) +
+  geom_point(data = map_data, aes(x = Longitude, y = Latitude, size = n, shape = Data, col = Data), 
+             alpha = 0.6) + 
+  scale_shape_manual(values = c(1, 4)) +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(x = "Longitude", y = "Latitude") +
+  scale_size_continuous (name = "Sites (n)") +
+  scale_x_continuous(name="Longitude", breaks=seq(-180,180, 60),labels = seq(-180,180, 60))+
+  scale_y_continuous(limits = c(-60, 90),name="Latitude", breaks=seq(-60,90,30),labels = seq(-60,90,30)) 
+
+```
+
+## plot 
 ```{r}
+bind_rows(CMIP6_global_5models %>% 
+            group_by(Year, Type) %>% 
+            summarise(Rh = mean(Rh)) %>% 
+            mutate(Model = "CMIP6"),
+          tang_global_rh,
+          hashimoto_global_rh,
+          tibble(Rh = 49.9, Year = 2005, Model = "Warner", Type = "Benchmark"),
+          land_global_rh) %>% 
+  ggplot(aes(Year, Rh, group = Model, col = Model)) +
+  geom_point() +
+  geom_line(aes(linetype = Type)) +
+  labs(y = expression(Global~annual~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+  scale_x_continuous(breaks = seq(1980, 2015, 5)) +
+  scale_colour_discrete(name  ="Model",
+                        breaks=c("Hashimoto", "Tang", "Warner", "casaclm", "corpse", "mimics", "CMIP6"),
+                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6 (mean)")) ->
+  temporal_trend
+
+temporal_trend
+
+# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
+
+# Supplemental figure
 bind_rows(tang_global_rh,
           hashimoto_global_rh,
-          tibble(Rh = 49.7, Year = 2010, Model = "Warner", Type = "Benchmark"),
-          land_global_rh
+          tibble(Rh = 49.9, Year = 2005, Model = "Warner", Type = "Benchmark")
+          ) %>% 
+  group_by(Year) %>% 
+  summarise(Rh = mean(Rh)) %>% 
+  mutate(Model = "Statistical", Type = "Benchmark") ->
+  statistical_mean
+
+bind_rows(statistical_mean,
+          CMIP6_global_5models
           ) %>% 
   ggplot(aes(Year, Rh, group = Model, col = Model)) +
   geom_point() +
@@ -95,14 +245,14 @@ bind_rows(tang_global_rh,
   labs(y = expression(Global~annual~R[H]~(g~C~m^{-2}~yr^{-1}))) +
   scale_x_continuous(breaks = seq(1980, 2015, 5)) +
   scale_colour_discrete(name  ="Model",
-                        breaks=c("Hashimoto", "Tang", "Warner", "casaclm", "corpse", "mimics"),
-                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS"))
+                        breaks=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", 'Statistical'),
+                        labels=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical (mean)")) ->
+  temporal_trend_SI
 
-# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
 ```
 
 
-```{r plot model comparison}
+```{r Rh latitude trend, fig.width=6, fig.height=4}
 bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat) %>% 
   filter(lat < 87.5) %>% 
   mutate(type = case_when(type == "land model" ~ "Land model",
@@ -113,8 +263,88 @@ bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat) %>%
 plot_landmodels_time(landmodel_dat)
 global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_dat)
 # ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
-plot_latitude(landmodel_bench_dat)
+
+LAT_BANDS <- seq(-90, 90, by = 5)
+lat_data <- prep_latitude_data(landmodel_bench_dat)
+
+bind_rows(
+  CMIP6_perc %>% 
+    dplyr::select(coords, value) %>% 
+    group_by(coords) %>% 
+    summarise(value = mean(value)) %>% 
+    rename(lat = coords, hr_gC_m2_yr_percent = value) %>% 
+    mutate(model = "CMIP6", type = "Land model", hr_gC_m2_yr_percent = hr_gC_m2_yr_percent/100),
+  
+  lat_data %>% 
+    dplyr::select(-hr_gC_m2_yr)) ->
+  plotting_data
+
+
+# plot latitude trend
+plotting_data %>% 
+  ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
+  geom_line() +
+  scale_size_manual(values = c(1.25, 0.75)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  xlab("Latitude") +
+  ylab(expression(R[H]~by~latitude~("% of global total"))) +  
+  scale_colour_discrete(name="Model",
+                        breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics", "CMIP6"),
+                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6 (mean)")) +
+  coord_flip() ->
+  lat_trend
 # ggsave('outputs/Figure2.Rh_lat_comparison.jpg', width = 6, height = 4)
+
+# plot latitude trend
+bind_rows(
+  CMIP6_perc %>% 
+    dplyr::select(coords, value, model) %>% 
+    rename(lat = coords, hr_gC_m2_yr_percent = value) %>% 
+    mutate(type = "Land model", hr_gC_m2_yr_percent = hr_gC_m2_yr_percent/100),
+  lat_data %>% 
+    dplyr::select(-hr_gC_m2_yr, -model) %>% 
+    filter(type == "Benchmark") %>% 
+    group_by(type, lat) %>% 
+    summarise(hr_gC_m2_yr_percent = mean(hr_gC_m2_yr_percent)) %>% 
+    mutate(model = "Statistical")  ) %>% 
+  ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
+  geom_line() +
+  scale_size_manual(values = c(1.25, 0.75)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  xlab("Latitude") +
+  ylab(expression(R[H]~by~latitude~("% of global total"))) +  
+  scale_colour_discrete(name="Model",
+                        breaks=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical"),
+                        labels=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical (mean)")) +
+  coord_flip() ->
+  lat_trend_SI
+
+# latitude rate rather than percentage
+lat_data %>% 
+  ggplot(aes(lat, hr_gC_m2_yr, color = model, linetype = type, size = type)) +
+  geom_line() +
+  scale_size_manual(values = c(1.25, 0.75)) +
+  # scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  xlab("Latitude") +
+  ylab(expression(R[H]~(g~C~m^{-2}~yr^{-1}))) +  
+  scale_colour_discrete(name="Model",
+                        breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics", "CMIP6"),
+                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6(mean)")) +
+  coord_flip() 
+
+```
+
+```{r, fig.width=8, fig.height=8}
+# put temporal and latitudinal plot together
+plot_grid(temporal_trend, lat_trend,
+          ncol = 1,
+          labels = c("a", "b"))
+
+# ggsave('outputs/Figure2.Rh_lat_comparison.jpg', width = 6, height = 6)
+
+plot_grid(temporal_trend_SI, lat_trend_SI,
+          ncol = 1,
+          labels = c("a", "b"))
 ```
 
 
@@ -125,33 +355,16 @@ hashimoto_dat %>%
   summarise(gCyr = mean(hr_gC_m2_yr), PgC = sum(hr_PgC_yr))
 
 tang_dat %>% 
-  select(-hr) %>% 
+  dplyr::select(-hr) %>% 
   na.omit() %>% 
   group_by(time) %>% 
   summarise(gCyr = mean(hr_gC_m2_yr), PgC = sum(hr_PgC_yr))
 ```
 
 
-```{r test}
-tang_dat %>% 
-  select(-hr) %>% 
-  mutate(Year = floor(time)) %>% 
-  na.omit() %>%
-  group_by(model, Year) %>% 
-  summarise(n = n(), hr_PgC = sum(hr_PgC_yr, na.rm = TRUE)) %>% 
-  ggplot(aes(Year, hr_PgC)) +
-  geom_point() +
-  geom_line()
-```
-
-```{r}
-srdb_rh %>% 
-  count(Study_midyear)
-```
 
 
 ```{r, fig.width=4, fig.height=8}
-
 lm_hashi <- lm(srdb_rh[!is.na(srdb_rh$hashi_rh),]$Rh_annual ~ srdb_rh[!is.na(srdb_rh$hashi_rh),]$hashi_rh)
 summary(lm_hashi)
 r2_hashi <- round(summary(lm_hashi)$adj.r.squared, 3)
@@ -220,7 +433,7 @@ plot_grid(
 ```
 
 
-```{r Boots and compare annual Rh, fig.width=8, fig.height=8 }
+```{r Boots annual Rh, fig.width=8, fig.height=8 }
 srdb_rh
 set.seed(20200611)
 N_SAMPLES <- 2500
@@ -237,10 +450,16 @@ bootstrap_srdb_rh <- tibble(
   b_warner_rh = sapply(rep(sample_size, N_SAMPLES), RESAMPLE, srdb_rh[!is.na(srdb_rh$warner_rh),]$warner_rh)
 )
 
+# pared t-test or wilcox test
+t.test(bootstrap_srdb_rh$a_measure_rh, bootstrap_srdb_rh$b_hashi_rh, mu = 0, paired = TRUE, alternative = "two.sided", conf.level = 0.99)
+wilcox.test(bootstrap_srdb_rh$a_measure_rh, bootstrap_srdb_rh$b_hashi_rh, mu = 0, paired = TRUE, alternative = "two.sided", conf.int = TRUE, conf.level = 0.99)
+hist(bootstrap_srdb_rh$a_measure_rh - bootstrap_srdb_rh$b_hashi_rh)
+
+
 # plot hashimoto comparison
 bootstrap_srdb_rh %>%
-  select(a_measure_rh, b_hashi_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_hashi_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
@@ -253,16 +472,16 @@ bootstrap_srdb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
-  annotate("text", x = 600, y = 0.0075,
-           label = "p > 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) ->
+  # annotate("text", x = 600, y = 0.0075,
+  #          label = "p > 0.05",
+  #          hjust = 0) ->
   p_hashi
 
 # plot tang comparison
 bootstrap_srdb_rh %>%
-  select(a_measure_rh, b_tang_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_tang_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
@@ -275,16 +494,16 @@ bootstrap_srdb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
-  annotate("text", x = 600, y = 0.0075,
-           label = "p > 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) ->
+  # annotate("text", x = 600, y = 0.0075,
+  #          label = "p > 0.05",
+  #          hjust = 0) ->
   p_tang
 
 # plot warner comparison
 bootstrap_srdb_rh %>%
-  select(a_measure_rh, b_hashi_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_hashi_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
@@ -297,10 +516,10 @@ bootstrap_srdb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) +
-  annotate("text", x = 600, y = 0.0075,
-           label = "p > 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~yr^{-1}))) ->
+  # annotate("text", x = 600, y = 0.0075,
+  #          label = "p > 0.05",
+  #          hjust = 0) ->
   p_warner
 
 # combine 
@@ -319,12 +538,12 @@ plot_grid(p_rh_reg, p_rh_com,
 ```{r}
 # over all - annual Rh comparison
 srdb_rh %>% 
-  select(Rh_annual, warner_rh, tang_rh, hashi_rh, Manipulation) %>% 
+  dplyr::select(Rh_annual, warner_rh, tang_rh, hashi_rh, Manipulation) %>% 
   rename(Annual_Rh = Rh_annual) %>% 
   filter(Manipulation == "None") %>% 
   na.omit() %>% 
-  select(Annual_Rh, warner_rh, tang_rh, hashi_rh) %>% 
-  gather("Group", "Rh") %>% 
+  dplyr::select(Annual_Rh, warner_rh, tang_rh, hashi_rh) %>% 
+  tidyr::gather("Group", "Rh") %>% 
   ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
   geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
   theme(legend.position = "none",
@@ -337,7 +556,7 @@ srdb_rh %>%
 
 ```
 
-```{r, fig.width=5, fig.height=8}
+```{r, fig.width=5, fig.height=3}
 lm_casa <- lm(MGRhD[!is.na(MGRhD$casaclm),]$Rh_Norm ~ MGRhD[!is.na(MGRhD$casaclm),]$casaclm)
 summary(lm_casa)
 r2_casa <- round(summary(lm_casa)$adj.r.squared, 3)
@@ -366,7 +585,7 @@ plot_grid(
          y = expression(Measured~R[H])) +
     xlim(0, 8) +
     annotate("text", x = 0.5, y = 13.5,
-           label = expression(R^{2}~"="~0.017^"***"),
+           label = expression(R^{2}~"="~0.075^"***"),
            hjust = 0),
   
   MGRhD %>% 
@@ -383,7 +602,7 @@ plot_grid(
          y = expression(Measured~R[H]~(g~C~m^{2}~day^{-1}))) +
     xlim(0, 8) +
     annotate("text", x = 0.5, y = 13.5,
-           label = expression(R^{2}~"="~0.003^"***"),
+           label = expression(R^{2}~"="~0.030^"***"),
            hjust = 0),
   
   MGRhD %>% 
@@ -400,7 +619,7 @@ plot_grid(
          y = expression(Measured~R[H])) +
     xlim(0, 8) +
     annotate("text", x = 0.5, y = 13.5,
-           label = expression(R^{2}~"="~0.032^"***"),
+           label = expression(R^{2}~"="~0.095^"***"),
            hjust = 0),
   ncol = 1) ->
   p_mgrsd_rh_reg
@@ -448,7 +667,7 @@ MGRhD %>%
 ```
 
 
-```{r Boots and compare annual Rh, fig.width=8, fig.height=8 }
+```{r Boots daily Rh, fig.width=8, fig.height=8 }
 MGRhD
 set.seed(20200611)
 N_SAMPLES <- 2500
@@ -463,13 +682,13 @@ bootstrap_mgrsb_rh <- tibble(
 
 # plot casa comparison
 bootstrap_mgrsb_rh %>%
-  select(a_measure_rh, b_casa_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_casa_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
   theme(legend.position = c(0.8, 0.75)) +
-  coord_cartesian(xlim = c(0.5, 3.5)) +
+  coord_cartesian(xlim = c(0.5, 4)) +
   scale_fill_manual("",
     labels = c(expression(Measured~R[H]), expression("CASA-CNP")),
     values=c("skyblue", "#E41A1C")) +
@@ -477,21 +696,21 @@ bootstrap_mgrsb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
-  annotate("text", x = 2.55, y = 0.75,
-           label = "p < 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) ->
+  # annotate("text", x = 3.15, y = 0.75,
+  #          label = "p < 0.05",
+  #          hjust = 0) ->
   p_casa
 
 # plot corpse comparison
 bootstrap_mgrsb_rh %>%
-  select(a_measure_rh, b_corpse_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_corpse_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
   theme(legend.position = c(0.8, 0.75)) +
-  coord_cartesian(xlim = c(0.5, 3.5)) +
+  coord_cartesian(xlim = c(0.5, 4)) +
   scale_fill_manual("",
     labels = c(expression(Measured~R[H]), expression("CORPSE")),
     values=c("skyblue", "#E41A1C")) +
@@ -499,21 +718,21 @@ bootstrap_mgrsb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
-  annotate("text", x = 2.55, y = 0.75,
-           label = "p < 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) ->
+  # annotate("text", x = 3.15, y = 0.75,
+  #          label = "p < 0.05",
+  #          hjust = 0) ->
   p_corpse
 
 # plot mimics comparison
 bootstrap_mgrsb_rh %>%
-  select(a_measure_rh, b_mimics_rh) %>% 
-  gather(Rh_type) %>% 
+  dplyr::select(a_measure_rh, b_mimics_rh) %>% 
+  tidyr::gather(Rh_type) %>% 
   ggplot(aes(value, fill = Rh_type)) +
   # theme_cowplot() +
   geom_density(stat = "density", alpha = 0.65) +
   theme(legend.position = c(0.8, 0.75)) +
-  coord_cartesian(xlim = c(0.5, 3.5)) +
+  coord_cartesian(xlim = c(0.5, 4)) +
   scale_fill_manual("",
      labels = c(expression(Measured~R[H]), expression("MIMICS")),
      values=c("skyblue", "#E41A1C")) +
@@ -521,10 +740,10 @@ bootstrap_mgrsb_rh %>%
     legend.title = element_blank(),
     legend.text.align = 0) +
   ylab("Density") +
-  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) +
-  annotate("text", x = 2.55, y = 0.75,
-           label = "p < 0.05",
-           hjust = 0) ->
+  xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))) ->
+  # annotate("text", x = 3.15, y = 0.75,
+  #          label = "p < 0.05",
+  #          hjust = 0) ->
   p_mimics
 
 # combine 
@@ -541,16 +760,15 @@ plot_grid(p_mgrsd_rh_reg, p_mgrsd_rh_com,
 
 
 ## Rh by month in different models
-
-```{r, fig.width=6, fig.height=7}
+```{r, fig.width=8, fig.height=7}
 # over all
 MGRhD %>% 
-  select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
+  dplyr::select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
   rename(Rh = Rh_Norm) %>% 
   filter(Manipulation == "None") %>% 
   na.omit() %>% 
-  select(Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
-  gather("Group", "Rh", -Meas_Month2) %>% 
+  dplyr::select(Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
+  tidyr::gather("Group", "Rh", -Meas_Month2) %>% 
   ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
   geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
   theme(legend.position = "none",
@@ -563,7 +781,7 @@ MGRhD %>%
 
 # seperate by group
 MGRhD %>% 
-  select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
+  dplyr::select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
   rename(Rh = Rh_Norm) %>% 
   mutate(Seasnon = case_when(
     Meas_Month2 %in% c(3, 4, 5)~"(a) Spring",
@@ -574,11 +792,11 @@ MGRhD %>%
   )) %>% 
   filter(Manipulation == "None") %>% 
   na.omit() %>% 
-  select(Seasnon, Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
-  gather("Group", "Rh", -Seasnon, -Meas_Month2) %>% 
+  dplyr::select(Seasnon, Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
+  tidyr::gather("Group", "Rh", -Seasnon, -Meas_Month2) %>% 
   ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
   geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
-  facet_wrap(Seasnon ~ Meas_Month2,
+  facet_wrap(. ~ Meas_Month2,
              ncol = 3,
              scales = "free") +
   theme(legend.position = "top",
@@ -587,6 +805,213 @@ MGRhD %>%
         axis.text.x = element_blank()) +
   labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
 
-# ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 6, height = 7)
+# ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 8, height = 6)
   
 ```
+
+
+## Site scale comparison
+```{r}
+# at first find out the site with longest Rh measurement as an example
+MGRhD %>% 
+  dplyr::select(Study_number, Meas_Year) %>% 
+  unique() %>% 
+  group_by(Study_number) %>% 
+  summarise(n_yr = n()) %>% 
+  arrange(desc(n_yr))
+```
+
+
+```{r, fig.width=8, fig.height=4}
+Rh_site_comp(MGRhD, 5113) ->
+  p_well
+
+# overestimate
+# plot_grid(
+#   Rh_site_comp(MGRhD, 6070), # no residual trend
+#   Rh_site_comp(MGRhD, 17),   # negative trend
+#   Rh_site_comp(MGRhD, 7282), # possitive trend
+#   ncol = 1
+# ) ->
+#   p_over
+Rh_site_comp(MGRhD, 7282) ->
+  p_over
+
+# underestimate
+Rh_site_comp(MGRhD, 7898) ->
+  p_under
+
+MGRhD %>% 
+  filter(Study_number == 8439) %>% 
+  dplyr::select(Rh_Norm, casaclm, corpse, mimics, Latitude, Longitude, Meas_Year, Meas_Month2, Meas_DOY)
+
+MGRhD %>% 
+  filter(Study_number == 10934) %>% 
+  dplyr::select(Rh_Norm, casaclm, corpse, mimics, Latitude, Longitude, Meas_Year, Meas_Month2, Meas_DOY)
+```
+
+
+```{r, fig.width=8, fig.height=6}
+# combine all together
+plot_grid(
+  p_well, p_over, p_under,
+  ncol = 1,
+  rel_heights = c(1,1,1),
+  labels = c("a", "b", "c"),
+  vjust = 1
+)
+```
+
+
+## Use histgram to show the t-test results
+```{r, fig.width=8, fig.height=6}
+res_site %>% 
+  # count(t_group) 
+  ggplot(aes(MBE)) +
+  facet_grid(rows = vars(t_group)) +
+  geom_histogram(bins = 50, col = "black", fill = "gray") +
+  labs(x = expression(Mean~residual~(g~C~m^{-2}~day^{-1}))) ->
+  resid_hist
+
+MGRhD %>% 
+  filter(!is.na(Rh_Norm) & !is.na(t_group) & Rh_Norm <= 10) %>% 
+    mutate(CASACNP = casaclm - Rh_Norm,
+           CORPSE = corpse - Rh_Norm,
+           MIMICS = mimics - Rh_Norm) %>% 
+    dplyr::select(Meas_DOY, CASACNP, CORPSE, MIMICS, Rh_Norm, t_group) %>%
+    tidyr::gather(key = "Model", value = "Residual", -Meas_DOY, -Rh_Norm, -t_group) %>% 
+  ggplot(aes(x = Rh_Norm, y = Residual)) +
+  geom_point(shape = 1, alpha = 0.25, col = "gray") +
+  geom_smooth(method = "lm", se = FALSE, col = "red") +
+  geom_hline(yintercept = 0, col="blue", linetype = "twodash", size = 1) +
+  theme(axis.title.y = element_blank()) +
+  labs(x = expression(R[H]~(g~C~m^{-2}~day^{-1}))) +
+  facet_grid(rows = vars(t_group)) ->
+  resid_trend
+
+# plot difference
+MGRhD %>% 
+  # filter(Study_number == study_number) %>% 
+  filter(!is.na(Rh_Norm)) %>% 
+  mutate(CASACNP = (casaclm - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE),
+         CORPSE = (corpse - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE),
+         MIMICS = (mimics - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE)) %>% 
+  dplyr::select(Study_number, Meas_DOY, CASACNP, CORPSE, MIMICS, t_group) %>%
+  tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Study_number, -t_group) %>%
+  group_by(Meas_DOY, t_group) %>% 
+  summarise(Rh_dif = mean(Rh_dif)) %>% 
+  mutate(Study_number = "Mean") %>% 
+  filter(!is.na(t_group)) ->
+  doy_average
+
+
+MGRhD %>% 
+  # filter(Study_number == study_number) %>% 
+  filter(!is.na(Rh_Norm)) %>% 
+  mutate(CASACNP = (casaclm - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE),
+         CORPSE = (corpse - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE),
+         MIMICS = (mimics - Rh_Norm)/mean(Rh_Norm, na.rm = TRUE)) %>% 
+  dplyr::select(Study_number, Meas_DOY, CASACNP, CORPSE, MIMICS, t_group) %>%
+  tidyr::gather(key = "Model", value = "Rh_dif", -Meas_DOY, -Study_number, -t_group) %>%
+  group_by(Study_number, Meas_DOY, t_group) %>% 
+  summarise(Rh_dif = mean(Rh_dif)) %>% 
+  filter(Rh_dif > -7.5 & !is.na(t_group)) %>% 
+  ggplot(aes(x=Meas_DOY, y=Rh_dif, group = Study_number)) +
+  geom_line(col = "gray", linetype = 1) +
+  geom_hline(yintercept = 0, col="blue", linetype = "twodash", size = 1) +
+  labs(x = expression(Day~of~year),
+       y = expression(Residual~(g~C~m^{-2}~day^{-1}))) +
+  facet_grid(rows = vars(t_group)) -> 
+  residual_group
+
+residual_group +
+  geom_line(col = "black", linetype = 1, data = doy_average) ->
+  residual_group
+
+# plot figure
+plot_grid(residual_group,
+          resid_trend,
+          ncol = 2,
+          rel_widths = c(1.15, 1))  
+
+```
+
+
+## Classfication to figure it out which factor can helps explain the t-group (under estimated, over estimated, and well estimated)
+```{r}
+set.seed(20200626)
+MGRhD %>% 
+  mutate(residue = (casaclm + corpse + mimics)/3 - Rh_Norm) %>% 
+  select(residue, Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP, Meas_Month2) %>% 
+  na.omit() ->
+  MGRhD_rf
+
+
+# rf <- randomForest(residue ~ Latitude + Longitude + Biome + Ecosystem_type + Leaf_habit + MAT + MAP + Meas_Month2,
+#                    data=MGRhD_rf,
+#                    ntree = 100,
+#                    mtry = 2,
+#                    importance = TRUE,
+#                    proximity = TRUE) 
+
+# summary(rf)
+# importance(rf, type = 1)
+# varImpPlot(rf)
+
+res_site %>% 
+  select(-MAT, -MAP) %>% 
+  mutate(absLongitude = abs(Longitude), absLatitude = abs(Latitude)) %>% 
+  na.omit() ->
+  sub_res_site
+
+# writ_file(sub_res_site, 'sub_res_site.csv')
+
+rf <- randomForest(MBE ~ absLatitude + absLongitude + Biome + Ecosystem_type + Leaf_habit + MAT_Del + MAP_Del,
+                   data=sub_res_site,
+                   ntree = 100,
+                   mtry = 2,
+                   importance = TRUE,
+                   proximity = TRUE)
+
+summary(rf)
+importance(rf, type = 1)
+varImpPlot(rf)
+
+```
+
+## Classification
+```{r}
+library(rpart)
+fit <- rpart(MBE ~ Latitude + Longitude + Biome + Ecosystem_type + Leaf_habit + MAT_Del + MAP_Del,
+             method="class", data=sub_res_site)
+
+plotcp(fit) # visualize cross-validation results
+summary(fit) # detailed summary of splits
+```
+
+
+
+```{r}
+sub_res_site %>% 
+  filter(MAP_Del < 4000) %>% 
+  ggplot(aes(MAP_Del, MBE, col = Ecosystem_type)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+
+sub_res_site %>% 
+  ggplot(aes(absLatitude, MBE, col = Ecosystem_type)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+
+sub_res_site %>% 
+  ggplot(aes(MAT_Del, MBE, col = Biome)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+```{r}
+MGRhD %>% 
+  select(Study_number) %>% 
+  unique()
+```
+

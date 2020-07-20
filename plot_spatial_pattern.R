@@ -4,7 +4,7 @@
 # load required packages
 library(ncdf4)
 library(raster)
-library(ggplot2)
+library(fields)
 library(RColorBrewer)
 
 setwd('E:/extdata')

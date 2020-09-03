@@ -10,7 +10,6 @@ library(styler)
 library(ggplot2)
 theme_set(theme_bw())
 library(cowplot)
-library(cowplot)
 library(data.table)
 library(lubridate)
 library(kableExtra)
@@ -27,6 +26,11 @@ library(tidyr)
 library(dplyr)
 library(randomForest)
 library(neuralnet)
+library(raster)
+library(ncdf4)
+library(RColorBrewer)
+library(fields)
+library(ggbeeswarm)
 # Source all needed functions
 source('plots.R')
 source('functions.R')
@@ -41,34 +45,68 @@ knitr::opts_chunk$set(results = 'hide', message = TRUE, include = TRUE,
                       fig.height = 4, fig.width = 8, cache = FALSE)
 ```
 
-
 ## load data
 ```{r}
-landmodel_dat <- drake::readd(landmodel_dat)
+landmodel_dat <- bind_rows(drake::readd(landmodel_dat_casa),
+                           drake::readd(landmodel_dat_corpse),
+                           drake::readd(landmodel_dat_mimics) ) 
+casa_gpp_npp_rh <- drake::readd(casa_gpp_npp_rh)
+modis_gpp_npp <- drake::readd(modis_gpp_npp) %>% 
+  mutate(GPP_mean = GPP_mean*1000,
+         NPP_mean = NPP_mean*1000) %>% 
+  rename(lat = Lat)
+
 hashimoto_dat <- drake::readd(hashimoto_dat)
 tang_dat <- drake::readd(tang_dat)
 warner_dat <- drake::readd(warner_dat)
+warner_bond2004 <- drake::readd(warner_bond2004)
 MGRhD <- drake::readd(MGRhD_landmodel)
 # remove 0 values
 MGRhD %>% 
   filter(corpse != 0 & casaclm != 0 & mimics != 0) ->
   MGRhD
+
 MGRhD %>% 
-  filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
-  filter(Meas_Year >= 2000 & Meas_Year <= 2010 & !is.na(Rh_Norm)) ->
-  subMGRhD
-srdb <- drake::readd(srdb)
+  mutate(GPP = GPP/10000*1000/8, NPP = NPP/10000*1000/8, 
+         GPP_diff = casagpp - GPP,
+         NPP_diff = casanpp - NPP,
+         Rh_diff = casaclm - Rh_Norm) ->
+  MGRhD
+
+srdb <- drake::readd(srdb_warner)
 srdb_rh <- drake::readd(srdb_rh)
 # return those with annual Rh
-# cmip6
-CMIP6_perc <- drake::readd(CMIP6_perc)
-CMIP6_global <- drake::readd(cmip6_global)
-MGRhD_SRDB <- read.csv("../MGRsD/outputs/MGRsD_SRDBV5.csv")
+# MGRhD_SRDB <- read.csv("../MGRsD/outputs/MGRsD_SRDBV5.csv")
 Global_mat_map <- read.csv("../SRDBV5/data/summarized_climate.csv", comment.char = "#")
 
 # left_join(MGRhD,
 #           MGRhD_SRDB %>% select(Study_number, Site_ID, Meas_Year, Meas_Month2, Tm_del, Pm_del, Tannual_del, Pannual_del, MAT_Del, MAP_Del),
 #           by = c('Study_number', 'Site_ID', 'Meas_Year', "Meas_Month2"))
+
+# Mean annual casa, corpse, and mimics
+shr_MIMICS <- drake::readd(shr_MIMICS)
+shr_CASACLM <- drake::readd(shr_CASACLM)
+shr_CORPSE <- drake::readd(shr_CORPSE)
+shr_warner2020 <- drake::readd(shr_warner2020)
+
+# CMIP6 data
+CMIP6_perc <- drake::readd(CMIP6_perc)
+CMIP6_perc_GPP <- drake::readd(CMIP6_perc_GPP)
+CMIP6_perc_NPP <- drake::readd(CMIP6_perc_NPP)
+# lat_area <- drake::readd(lat_area)
+CMIP6_global <- drake::readd(cmip6_global)
+# left_join(CMIP6_perc, lat_area %>% select(-units), by = c("model", "experiment", "coords"))
+# write.csv(srdb, '~/Documents/PNNL/SoilRespirationPartitioning/Data/srdb_warner.csv', row.names = FALSE)
+
+bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat) %>% 
+  filter(lat < 87.5) %>% 
+  mutate(type = case_when(type == "land model" ~ "Land model",
+                          TRUE ~ "Benchmark")) -> 
+  # rename(Type = type) ->
+  landmodel_bench_dat
+
+LAT_BANDS <- seq(-90, 90, by = 5)
+lat_data <- prep_latitude_data(landmodel_bench_dat)
 ```
 
 
@@ -77,9 +115,9 @@ Global_mat_map <- read.csv("../SRDBV5/data/summarized_climate.csv", comment.char
 # Calculate residue as the differences between model estimated Rh and field measured Rh
 MGRhD %>% 
   filter(!is.na(Rh_Norm) & !is.na(casaclm) & (casaclm > 0)) %>% 
-  dplyr::select(Study_number, Rh_Norm, casaclm, corpse, mimics, Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP) %>% 
+  dplyr::select(Study_number, Rh_Norm, casaclm, corpse, mimics, Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP, GPP_diff, NPP_diff) %>% 
   filter(Study_number %!in% c(531, 586, 900, 2095, 5309)) %>% # exclude study with < 5 measurements
-  tidyr::gather(key = "Model", value = "Rh_model", -Study_number, -Rh_Norm, -Latitude, -Longitude, -Biome, -Ecosystem_type, -Leaf_habit, -MAT, -MAP) %>% 
+  tidyr::gather(key = "Model", value = "Rh_model", -Study_number, -Rh_Norm, -Latitude, -Longitude, -Biome, -Ecosystem_type, -Leaf_habit, -MAT, -MAP, -GPP_diff, -NPP_diff) %>% 
   mutate(Residuals = Rh_model - Rh_Norm) ->
   residual_data
 
@@ -90,8 +128,8 @@ colnames(res_site)[1] <- "Study_number"
 res_site %>% 
   mutate(t_group = case_when(
     p_t_test >= 0.05 ~ "Well estimated (n=20)",
-    p_t_test < 0.05 & MBE > 0 ~ "Over estimated (n=177)",
-    p_t_test < 0.05 & MBE < 0 ~ "Under estimated (n=61)")) %>% 
+    p_t_test < 0.05 & MBE > 0 ~ "Over estimated (n=169)",
+    p_t_test < 0.05 & MBE < 0 ~ "Under estimated (n=65)")) %>% 
   mutate(Latitude = round(Latitude*2)/2+0.25, Longitude = round(Longitude*2)/2+0.25) ->
   res_site
 
@@ -102,7 +140,75 @@ left_join(res_site, Global_mat_map, by = c("Latitude", "Longitude")) ->
 # Using left join to get residual t-test group of each site
 left_join(MGRhD, res_site %>% dplyr::select(Study_number, t_group), by = "Study_number") ->
   MGRhD
+
+res_site %>% 
+  count(Study_number)
+
+res_site %>% 
+  count(t_group)
 ```
+
+
+```{r}
+plot_landmodels_time(landmodel_dat %>% filter(time >= 1980 & model == "casaclm"))
+plot_landmodels_time(casa_gpp_npp_rh %>% filter(time >= 1980))
+global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_dat)
+# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
+
+MGRhD %>% 
+  dplyr::select(Study_number) %>% 
+  unique()
+
+MGRhD %>% 
+  # filter(is.na(casaclm)) %>%
+  filter(Meas_Year < 1979) %>%
+  dplyr::select(Meas_Year, Latitude, Longitude, Meas_Month2, Meas_DOY, Rh_Norm, casaclm)
+
+MGRhD %>% 
+  filter(!is.na(corpse) & is.na(casaclm)) %>% 
+  dplyr::select(Meas_Year, Latitude, Longitude, Meas_Month2, Meas_DOY, Rh_Norm, casaclm, corpse, mimics) %>% 
+  count(Meas_Year)
+
+MGRhD %>% 
+  filter(!is.na(mimics))
+
+MGRhD %>% 
+  ggplot(aes(casaclm, corpse)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+MGRhD %>% 
+  ggplot(aes(mimics, corpse)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+MGRhD %>% 
+  ggplot(aes(casaclm, Rh_Norm)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+MGRhD %>% 
+  filter(Rh_Norm <= 10) %>% 
+  ggplot(aes(mimics, Rh_Norm)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+```
+
+## check 0 outputs from land models
+```{r}
+MGRhD %>% 
+  filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
+  # filter(Meas_Year < 2000 | Meas_Year > 2010 & !is.na(Rh_Norm)) %>% 
+  dplyr::select(Meas_Year, Meas_DOY, Latitude, Longitude, Rh_Norm, casaclm) %>% 
+  filter(!is.na(casaclm)) %>% 
+  filter(casaclm == 0)  
+  
+MGRhD %>% 
+  count(Meas_Year) %>% 
+  filter(Meas_Year < 1980)
+```
+
 
 ## Load other global Rh data
 ```{r load Tang, Hashimoto, and CMIP6 data}
@@ -125,7 +231,7 @@ read.table("extdata/hashimoto2015_rh.txt",
 landmodel_dat %>% 
   # separate(time, c("Year", "Day"), sep = ".")
   mutate(Year = floor(time)) %>% 
-  mutate(Year = ifelse(Year == 2011, 2010, Year)) %>% # 2011 has only 1 day of data, and it should be 2010
+  # mutate(Year = ifelse(Year == 2011, 2010, Year)) %>% # 2011 has only 1 day of data, and it should be 2010
   mutate(Model = model) %>% 
   dplyr::select(Model, hr_PgC_yr, Year) %>% 
   group_by(Model, Year) %>% 
@@ -135,22 +241,19 @@ landmodel_dat %>%
 
 # CMIP6 data
 CMIP6_global %>% 
-  mutate(Rh = global_value / 10e15*1000,
+  mutate(Rh = value / 1e15,
          Model = model, Type = "Land model", Year = year) %>% 
   filter(Year < 2016 & Year > 1980) %>% 
-  filter(Rh > 30) %>% 
   dplyr::select(Year, Rh, Model, Type) %>% 
   group_by(Year, Model, Type) %>% 
   summarise(Rh = mean(Rh)) ->
-  CMIP6_global_5models
+  CMIP6_global_bymodels
 
-# Something is not right for CESM2 model in 2013, remove these two data points
-CMIP6_global_5models[CMIP6_global_5models$Year == 2013 & CMIP6_global_5models$Model == "CESM2",]$Rh <- NA
-CMIP6_global_5models[CMIP6_global_5models$Year == 2013 & CMIP6_global_5models$Model == "CESM2-WACCM",]$Rh <- NA
-
-CMIP6_global_5models %>% 
-  na.omit() ->
-  CMIP6_global_5models
+CMIP6_global_bymodels %>% 
+  ggplot() + 
+  geom_line(aes(Year, Rh, color = Model, group = interaction(Model))) + 
+  labs(title = 'Selected Annual Global Data', y = "Pg C yr-1") + 
+  theme_bw() 
 ```
 
 
@@ -170,7 +273,7 @@ bind_rows(
     filter(!is.na(Meas_Year) & !is.na(Meas_DOY) & !is.na(Latitude) & !is.na(Longitude)) %>% 
     dplyr::select(Latitude, Longitude) %>% 
     dplyr::count(Latitude, Longitude) %>% 
-    mutate(n = ceiling(n/12), Data = "MGRsD")) ->
+    mutate(n = ceiling(n/12), Data = "DGRsD")) ->
   map_data
 
 ggmap(map) + 
@@ -191,31 +294,45 @@ ggplot(data = map_data("world", region = ".", exact = FALSE)) +
   geom_polygon(aes(x = long, y = lat, group = group),
                color = "white", fill = 'gray') + 
   guides(fill=FALSE) +
-  geom_point(data = map_data, aes(x = Longitude, y = Latitude, size = n, shape = Data, col = Data), 
-             alpha = 0.6) + 
-  scale_shape_manual(values = c(1, 4)) +
-  scale_color_manual(values = c("blue", "red")) +
+  geom_point(data = map_data %>% filter (Data == "MGRsD"),
+             aes(x = Longitude, y = Latitude, size = n), 
+             alpha = 0.5) + 
+  scale_shape_manual(values = c(16)) +
+  scale_color_manual(values = c("skyblue")) +
   labs(x = "Longitude", y = "Latitude") +
   scale_size_continuous (name = "Sites (n)") +
   scale_x_continuous(name="Longitude", breaks=seq(-180,180, 60),labels = seq(-180,180, 60))+
-  scale_y_continuous(limits = c(-60, 90),name="Latitude", breaks=seq(-60,90,30),labels = seq(-60,90,30)) 
+  scale_y_continuous(limits = c(-60, 90),name="Latitude", breaks=seq(-60,90,30),labels = seq(-60,90,30)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 
 ```
 
-## plot 
+
 ```{r}
-bind_rows(CMIP6_global_5models %>% 
+
+bind_rows(CMIP6_global_bymodels %>% 
             group_by(Year, Type) %>% 
             summarise(Rh = mean(Rh)) %>% 
-            mutate(Model = "CMIP6"),
+            mutate(Model = "CMIP6") %>% 
+            filter(Year < 2014),
           tang_global_rh,
           hashimoto_global_rh,
           tibble(Rh = 49.9, Year = 2005, Model = "Warner", Type = "Benchmark"),
-          land_global_rh) %>% 
+          land_global_rh %>% 
+            filter(Rh > 40)) %>% 
+  filter(Year > 1980) %>% 
   ggplot(aes(Year, Rh, group = Model, col = Model)) +
   geom_point() +
+  geom_ribbon(data=hashimoto_global_rh,
+              aes(ymin=hashimoto_global_rh$Rh-2.24, ymax=hashimoto_global_rh$Rh+2.24),
+              alpha=0.3,
+              col = NA,
+              show.legend = FALSE) +
+  # geom_segment(aes(x = 2005, y = round(49.9-18.6*49.7/87.9,2),
+  #                  xend = 2005, yend = round(49.9+18.6*49.7/87.9,2)),
+  #              col = "red") +
   geom_line(aes(linetype = Type)) +
-  labs(y = expression(Global~annual~R[H]~(g~C~m^{-2}~yr^{-1}))) +
+  labs(y = expression(Global~annual~R[H]~(P~g~C~m^{-2}~yr^{-1}))) +
   scale_x_continuous(breaks = seq(1980, 2015, 5)) +
   scale_colour_discrete(name  ="Model",
                         breaks=c("Hashimoto", "Tang", "Warner", "casaclm", "corpse", "mimics", "CMIP6"),
@@ -223,65 +340,34 @@ bind_rows(CMIP6_global_5models %>%
   temporal_trend
 
 temporal_trend
-
-# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
-
-# Supplemental figure
-bind_rows(tang_global_rh,
-          hashimoto_global_rh,
-          tibble(Rh = 49.9, Year = 2005, Model = "Warner", Type = "Benchmark")
-          ) %>% 
-  group_by(Year) %>% 
-  summarise(Rh = mean(Rh)) %>% 
-  mutate(Model = "Statistical", Type = "Benchmark") ->
-  statistical_mean
-
-bind_rows(statistical_mean,
-          CMIP6_global_5models
-          ) %>% 
-  ggplot(aes(Year, Rh, group = Model, col = Model)) +
-  geom_point() +
-  geom_line(aes(linetype = Type)) +
-  labs(y = expression(Global~annual~R[H]~(g~C~m^{-2}~yr^{-1}))) +
-  scale_x_continuous(breaks = seq(1980, 2015, 5)) +
-  scale_colour_discrete(name  ="Model",
-                        breaks=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", 'Statistical'),
-                        labels=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical (mean)")) ->
-  temporal_trend_SI
-
 ```
 
 
 ```{r Rh latitude trend, fig.width=6, fig.height=4}
-bind_rows(landmodel_dat, tang_dat, hashimoto_dat, warner_dat) %>% 
-  filter(lat < 87.5) %>% 
-  mutate(type = case_when(type == "land model" ~ "Land model",
-                          TRUE ~ "Benchmark")) -> 
-  # rename(Type = type) ->
-  landmodel_bench_dat
-
-plot_landmodels_time(landmodel_dat)
-global_rh_compar(land_dat = landmodel_dat, t_dat = tang_dat, h_dat = hashimoto_dat)
-# ggsave('outputs/Figure1.GlobalRh_comparison.jpg', width = 6, height = 4)
-
-LAT_BANDS <- seq(-90, 90, by = 5)
-lat_data <- prep_latitude_data(landmodel_bench_dat)
 
 bind_rows(
   CMIP6_perc %>% 
-    dplyr::select(coords, value) %>% 
+    dplyr::select(coords, value_rate) %>% 
     group_by(coords) %>% 
-    summarise(value = mean(value)) %>% 
+    summarise(hr_gC_m2_yr = mean(value_rate)) %>% 
+    rename(lat = coords) %>% 
+    mutate(model = "CMIP6", type = "Land model"),
+  
+  lat_data %>% 
+    dplyr::select(-hr_gC_m2_yr_percent)) ->
+  plotting_data
+
+# plot latitude trend
+bind_rows(
+  CMIP6_perc %>% 
+    dplyr::select(coords, percent) %>% 
+    group_by(coords) %>% 
+    summarise(value = mean(percent)) %>% 
     rename(lat = coords, hr_gC_m2_yr_percent = value) %>% 
     mutate(model = "CMIP6", type = "Land model", hr_gC_m2_yr_percent = hr_gC_m2_yr_percent/100),
   
   lat_data %>% 
-    dplyr::select(-hr_gC_m2_yr)) ->
-  plotting_data
-
-
-# plot latitude trend
-plotting_data %>% 
+    dplyr::select(-hr_gC_m2_yr)) %>% 
   ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
   geom_line() +
   scale_size_manual(values = c(1.25, 0.75)) +
@@ -291,36 +377,12 @@ plotting_data %>%
   scale_colour_discrete(name="Model",
                         breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics", "CMIP6"),
                         labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6 (mean)")) +
-  coord_flip() ->
-  lat_trend
+  coord_flip() 
 # ggsave('outputs/Figure2.Rh_lat_comparison.jpg', width = 6, height = 4)
 
 # plot latitude trend
-bind_rows(
-  CMIP6_perc %>% 
-    dplyr::select(coords, value, model) %>% 
-    rename(lat = coords, hr_gC_m2_yr_percent = value) %>% 
-    mutate(type = "Land model", hr_gC_m2_yr_percent = hr_gC_m2_yr_percent/100),
-  lat_data %>% 
-    dplyr::select(-hr_gC_m2_yr, -model) %>% 
-    filter(type == "Benchmark") %>% 
-    group_by(type, lat) %>% 
-    summarise(hr_gC_m2_yr_percent = mean(hr_gC_m2_yr_percent)) %>% 
-    mutate(model = "Statistical")  ) %>% 
-  ggplot(aes(lat, hr_gC_m2_yr_percent, color = model, linetype = type, size = type)) +
-  geom_line() +
-  scale_size_manual(values = c(1.25, 0.75)) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
-  xlab("Latitude") +
-  ylab(expression(R[H]~by~latitude~("% of global total"))) +  
-  scale_colour_discrete(name="Model",
-                        breaks=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical"),
-                        labels=c("CESM2", "CESM2-WACCM", "CNRM-CM6-1", "CNRM-ESM2-1", "IPSL-CM6A-LR", "Statistical (mean)")) +
-  coord_flip() ->
-  lat_trend_SI
-
 # latitude rate rather than percentage
-lat_data %>% 
+plotting_data %>% 
   ggplot(aes(lat, hr_gC_m2_yr, color = model, linetype = type, size = type)) +
   geom_line() +
   scale_size_manual(values = c(1.25, 0.75)) +
@@ -329,9 +391,69 @@ lat_data %>%
   ylab(expression(R[H]~(g~C~m^{-2}~yr^{-1}))) +  
   scale_colour_discrete(name="Model",
                         breaks=c("hashimoto", "tang", "warner", "casaclm", "corpse", "mimics", "CMIP6"),
-                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6(mean)")) +
-  coord_flip() 
+                        labels=c("Hashimoto2015", "Tang2020", "Warner2020", "CASA-CNP", "CORPSE", "MIMICS", "CMIP6 (mean)")) +
+  coord_flip() ->
+  lat_trend
 
+```
+
+
+## plot 
+
+```{r, fig.height=9, fig.width=8}
+# cmip6
+# cmip6_annual_mean <- drake::readd(cmip6_annual_mean)
+# cmip6_global_mean <- drake::readd(cmip6_global_mean)
+
+# Supplemental figure
+bind_rows(tang_global_rh %>% filter(Year >= 1990),
+          hashimoto_global_rh,
+          tibble(Rh = 49.9, Year = 2005, Model = "Warner", Type = "Benchmark")
+          ) %>% 
+  group_by(Year) %>% 
+  summarise(Rh = mean(Rh)) %>% 
+  mutate(Model = "Statistical", Type = "Benchmark") ->
+  statistical_mean
+
+CMIP6_global %>% 
+  ggplot() + 
+  geom_line(aes(year, value/1e15, color = model, group = interaction(ensemble, model))) + 
+  geom_line(data = statistical_mean,
+            aes(Year, Rh, size = Type),
+            show.legend = FALSE) +
+  labs(x = element_blank(),
+       y = expression(Global~R[H]~(Pg~C~yr^{-1}))) + 
+  theme_bw() +
+  scale_color_discrete (name = "CMIP6 models") ->
+  temporal_trend_SI
+
+CMIP6_perc %>% 
+  filter(year == 2012) %>% 
+  ggplot() + 
+  geom_line(aes(coords, value_rate, color = model, group = interaction(ensemble, model))) +
+  geom_line(data = lat_data %>% 
+               dplyr::select(-hr_gC_m2_yr_percent, -model) %>% 
+               filter(type == "Benchmark") %>% 
+               group_by(type, lat) %>% 
+               summarise(hr_gC_m2_yr = mean(hr_gC_m2_yr)) %>% 
+               mutate(model = "Benchmark"),
+             aes(lat, hr_gC_m2_yr, size = type),
+            show.legend = FALSE)+
+  labs(x = expression(Latitude),
+       y = expression(R[H]~(g~C~m^{-2}~yr^{-1}))) + 
+  coord_flip() +
+  scale_color_discrete (name = "CMIP6 models") ->
+  lat_trend_SI
+
+CMIP6_perc %>% 
+  filter(year == 2012) %>% 
+  ggplot() + 
+  geom_line(aes(coords, latlon/1e15, color = model, group = interaction(ensemble, model))) 
+  
+
+plot_grid(temporal_trend_SI, lat_trend_SI,
+          ncol = 1,
+          labels = c("a", "b"))
 ```
 
 ```{r, fig.width=8, fig.height=8}
@@ -341,10 +463,6 @@ plot_grid(temporal_trend, lat_trend,
           labels = c("a", "b"))
 
 # ggsave('outputs/Figure2.Rh_lat_comparison.jpg', width = 6, height = 6)
-
-plot_grid(temporal_trend_SI, lat_trend_SI,
-          ncol = 1,
-          labels = c("a", "b"))
 ```
 
 
@@ -579,7 +697,7 @@ plot_grid(
     ggplot(aes(casaclm, Rh_Norm)) +
     geom_hex() +
     scale_fill_distiller(palette = "YlGnBu", name = "Count") +
-    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_abline(slope = 1, linetype = "dotted", col = "red", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression('CASA-CNP'~predicted~R[H]~(g~C~m^{2}~day^{-1})),
          y = expression(Measured~R[H])) +
@@ -596,13 +714,13 @@ plot_grid(
     ggplot(aes(corpse, Rh_Norm)) +
     geom_hex() +
     scale_fill_distiller(palette = "YlGnBu", name = "Count") +
-    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_abline(slope = 1, linetype = "dotted", col = "red", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(CORPSE~predicted~R[H]~(g~C~m^{2}~day^{-1})),
          y = expression(Measured~R[H]~(g~C~m^{2}~day^{-1}))) +
     xlim(0, 8) +
     annotate("text", x = 0.5, y = 13.5,
-           label = expression(R^{2}~"="~0.030^"***"),
+           label = expression(R^{2}~"="~0.032^"***"),
            hjust = 0),
   
   MGRhD %>% 
@@ -613,13 +731,13 @@ plot_grid(
     ggplot(aes(mimics, Rh_Norm)) +
     geom_hex() +
     scale_fill_distiller(palette = "YlGnBu", name = "Count") +
-    geom_abline(slope = 1, linetype = "dashed", col = "red", size = 2) +
+    geom_abline(slope = 1, linetype = "dotted", col = "red", size = 1.5) +
     geom_smooth(method = "lm", col = "orange") +
     labs(x = expression(MIMICS~predicted~R[H]~(g~C~m^{2}~day^{-1})),
          y = expression(Measured~R[H])) +
     xlim(0, 8) +
     annotate("text", x = 0.5, y = 13.5,
-           label = expression(R^{2}~"="~0.095^"***"),
+           label = expression(R^{2}~"="~0.097^"***"),
            hjust = 0),
   ncol = 1) ->
   p_mgrsd_rh_reg
@@ -795,15 +913,22 @@ MGRhD %>%
   dplyr::select(Seasnon, Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
   tidyr::gather("Group", "Rh", -Seasnon, -Meas_Month2) %>% 
   ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
-  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  # geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(outlier.size = 0.5, outlier.shape = 16,
+               lwd = 0.5, width = 0.5, alpha=1, fatten = NULL) +
+  stat_summary(fun.y=mean, geom="point", shape=16, size=4.5, col = "gray") +
+  stat_summary(fun.y=mean, geom="point", shape=16, size=1.5, col = "white") +
   facet_wrap(. ~ Meas_Month2,
              ncol = 3,
              scales = "free") +
   theme(legend.position = "top",
         legend.title = element_blank(),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank()) +
-  labs(y = expression(R[H]~(g~C~m^2~day^{-1})))
+        axis.text.x = element_blank(),
+        axis.ticks.x=element_blank()) +
+  labs(y = expression(R[H]~(g~C~m^2~day^{-1}))) +
+  scale_fill_discrete(breaks=c("casaclm", "corpse", "mimics", "Rh"),
+                      labels=c("CASA-CNP", "CORPSE", "MIMICS", "Measured"))
 
 # ggsave('outputs/Figure-monthRh-comparison-by-month.jpg', width = 8, height = 6)
   
@@ -937,61 +1062,71 @@ plot_grid(residual_group,
 ```
 
 
-## Classfication to figure it out which factor can helps explain the t-group (under estimated, over estimated, and well estimated)
+```{r, fig.height=8, fig.width=12}
+# spatial Rh map
+# change the lon from 0-360, the unit from y-1 to day-1 of SRDB data
+
+
+# plot spatial pattern of SRH data
+# dev.new(width=500, height=500, unit="px",noRStudioGD = TRUE)
+par(mfrow = c(2,2))
+image.plot(shr_MIMICS, zlim = c(0, 5),
+           main="MIMICS",
+           col = brewer.pal(n = 8, name = "Oranges"))
+image.plot(shr_CASACLM, zlim = c(0, 5),
+           main="CASA-CNP",
+           col = brewer.pal(n = 8, name = "Oranges"))
+image.plot(shr_CORPSE, zlim = c(0, 5),
+           main="CORPSE",
+           col = brewer.pal(n = 8, name = "Oranges"))
+image.plot(shr_warner2020, zlim = c(0, 5),
+           main="SRDB",
+           col = brewer.pal(n = 8, name = "Oranges"))
+```
+
+
+```{r, fig.height=8, fig.width=5}
+# plot difference among different SRH data
+# dev.new(width=550, height=200, unit="px",noRStudioGD = TRUE)
+par(mfrow = c(3,1),
+    mai = c(0.2, 0.1,0.2,0.1))
+image.plot(shr_CASACLM - shr_warner2020, zlim = c(-2, 2),
+           main="CASACLM - Warner et al. (2020)",
+           axes=F,
+           col = rev(brewer.pal(n = 10, name = "RdBu")))
+axis(1, labels = F, tick = T)
+axis(2, labels = F, tick = T)
+axis(3, labels = F, tick = T)
+axis(4, labels = F, tick = T)
+# mtext(text=seq(0,1,0.2), side=1, line=0.3, at=seq(0,1,0.2), las=0, cex=1)
+
+image.plot(shr_CORPSE - shr_warner2020, zlim = c(-2, 2),
+           main="CORPSE - Warner et al. (2020)",
+           axes=F,
+           col = rev(brewer.pal(n = 10, name = "RdBu")))
+axis(1, labels = F, tick = T)
+axis(2, labels = F, tick = T)
+axis(3, labels = F, tick = T)
+axis(4, labels = F, tick = T)
+
+image.plot(shr_MIMICS - shr_warner2020, zlim = c(-2, 2),
+           main="MIMICS - Warner et al. (2020)",
+           axes=F,
+           col = rev(brewer.pal(n = 10, name = "RdBu")))
+axis(1, labels = F, tick = T)
+axis(2, labels = F, tick = T)
+axis(3, labels = F, tick = T)
+axis(4, labels = F, tick = T)
+```
+
+
 ```{r}
-set.seed(20200626)
-MGRhD %>% 
-  mutate(residue = (casaclm + corpse + mimics)/3 - Rh_Norm) %>% 
-  select(residue, Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP, Meas_Month2) %>% 
-  na.omit() ->
-  MGRhD_rf
-
-
-# rf <- randomForest(residue ~ Latitude + Longitude + Biome + Ecosystem_type + Leaf_habit + MAT + MAP + Meas_Month2,
-#                    data=MGRhD_rf,
-#                    ntree = 100,
-#                    mtry = 2,
-#                    importance = TRUE,
-#                    proximity = TRUE) 
-
-# summary(rf)
-# importance(rf, type = 1)
-# varImpPlot(rf)
-
 res_site %>% 
-  select(-MAT, -MAP) %>% 
+  dplyr::select(-MAT, -MAP) %>% 
   mutate(absLongitude = abs(Longitude), absLatitude = abs(Latitude)) %>% 
   na.omit() ->
   sub_res_site
 
-# writ_file(sub_res_site, 'sub_res_site.csv')
-
-rf <- randomForest(MBE ~ absLatitude + absLongitude + Biome + Ecosystem_type + Leaf_habit + MAT_Del + MAP_Del,
-                   data=sub_res_site,
-                   ntree = 100,
-                   mtry = 2,
-                   importance = TRUE,
-                   proximity = TRUE)
-
-summary(rf)
-importance(rf, type = 1)
-varImpPlot(rf)
-
-```
-
-## Classification
-```{r}
-library(rpart)
-fit <- rpart(MBE ~ Latitude + Longitude + Biome + Ecosystem_type + Leaf_habit + MAT_Del + MAP_Del,
-             method="class", data=sub_res_site)
-
-plotcp(fit) # visualize cross-validation results
-summary(fit) # detailed summary of splits
-```
-
-
-
-```{r}
 sub_res_site %>% 
   filter(MAP_Del < 4000) %>% 
   ggplot(aes(MAP_Del, MBE, col = Ecosystem_type)) +
@@ -1010,8 +1145,327 @@ sub_res_site %>%
 ```
 
 ```{r}
+srdb %>% 
+  dplyr::select(Latitude, Longitude, warner_rs, Rs_annual) %>% 
+  filter(!is.na(Latitude) & Rs_annual < 10000) %>% 
+  ggplot(aes(warner_rs, Rs_annual)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_abline(slope = 1, intercept = 0, col = "red", linetype = "dashed")
+```
+
+```{r}
 MGRhD %>% 
-  select(Study_number) %>% 
-  unique()
+  ggplot(aes(casagpp, GPP)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  geom_abline(slope = 1, intercept = 0, col = "red", linetype = "dashed")
+
+MGRhD %>% 
+  ggplot(aes(casanpp, NPP)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  geom_abline(slope = 1, intercept = 0, col = "red", linetype = "dashed")
+```
+
+```{r}
+# invistigate whether GPP and NPP bias the spatial pattern
+MGRhD %>% 
+  dplyr::select(t_group, GPP, NPP, casagpp, casanpp, GPP_diff, NPP_diff) %>% 
+  na.omit()  %>% 
+  ggplot(aes(x = t_group, y = GPP_diff)) +
+  geom_quasirandom(alpha = 0.05) +
+  geom_boxplot(show.legend = FALSE, col = "orange", fill = "white", alpha = 0)
+
+MGRhD %>% 
+  dplyr::select(t_group, GPP, NPP, casagpp, casanpp, GPP_diff, NPP_diff) %>% 
+  na.omit()  %>% 
+  ggplot(aes(x = t_group, y = NPP_diff)) +
+  geom_quasirandom(alpha = 0.05) +
+  geom_boxplot(show.legend = FALSE, col = "orange", fill = "white", alpha = 0)
+  
+```
+
+```{r}
+MGRhD %>% 
+  dplyr::select(GPP_diff, Rh_diff, Ecosystem2) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10) %>% 
+  ggplot(aes(GPP_diff, Rh_diff, col = Ecosystem2)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm")
+
+MGRhD %>% 
+  dplyr::select(NPP_diff, Rh_diff, Ecosystem2) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10) %>% 
+  ggplot(aes(NPP_diff, Rh_diff, col = Ecosystem2)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm")
+
+MGRhD %>% 
+  dplyr::select(GPP_diff, Rh_diff, MiddleClimate) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10) %>% 
+  ggplot(aes(GPP_diff, Rh_diff)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(.~var(MiddleClimate))
+```
+
+```{r}
+MGRhD %>% 
+  mutate(North50 = case_when(
+    Latitude >= 47.5 & Latitude <= 52.5 ~ "Yes",
+    TRUE ~ "No")) %>% 
+  select(GPP_diff, Rh_diff, MiddleClimate, North50) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10 & GPP_diff <= 2 & GPP_diff >= -2) %>% 
+  ggplot(aes(GPP_diff, Rh_diff, col = North50)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(vars(MiddleClimate), ncol = 4) +
+  geom_vline(xintercept = 0, col = "red") + 
+  geom_hline(yintercept = 0, col = "red") +
+  labs(x = expression(CASA[GPP]~"-"~MODIS[GPP]~(g~C~m^{-2}~day^{-1})),
+       y = expression(CASA[RH]~"-"~Measured[RH]~(g~C~m^{-2}~day^{-1})))
+
+MGRhD %>% 
+  select(NPP_diff, Rh_diff, MiddleClimate) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10 & NPP_diff <= 2 & NPP_diff >= -2) %>% 
+  ggplot(aes(NPP_diff, Rh_diff)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(vars(MiddleClimate), ncol = 4) +
+  geom_vline(xintercept = 0, col = "red") + 
+  geom_hline(yintercept = 0, col = "red") +
+  labs(x = expression(CASA[NPP]~"-"~MODIS[NPP]~(g~C~m^{-2}~day^{-1})),
+       y = expression(CASA[RH]~"-"~Measured[RH]~(g~C~m^{-2}~day^{-1})))
+
+MGRhD %>% 
+  select(NPP_diff, Rh_diff, MiddleClimate) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10 & NPP_diff > 2) %>% 
+  ggplot(aes(NPP_diff, Rh_diff)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(vars(MiddleClimate)) +
+  geom_hline(yintercept = 0, col = "red")
+
+MGRhD %>% 
+  select(GPP_diff, Rh_diff, MiddleClimate) %>% 
+  na.omit() %>% 
+  filter(Rh_diff > -10 & GPP_diff > 2) %>% 
+  ggplot(aes(GPP_diff, Rh_diff)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(vars(MiddleClimate)) +
+  geom_hline(yintercept = 0, col = "red")
+```
+
+```{r}
+MGRhD %>% 
+  mutate(North50 = case_when(
+    Latitude >= 47.5 & Latitude <= 52.5 ~ "Yes",
+    TRUE ~ "No")) %>% 
+  filter(MiddleClimate == "Cf" & North50 == "Yes") %>% 
+  ggplot(aes(NPP_diff, Rh_diff)) +
+  geom_hex() +
+  geom_vline(xintercept = 0, col = "red") + 
+  geom_hline(yintercept = 0, col = "red")
+```
+
+```{r Figure S7}
+lat_data %>% 
+  filter(model == "casaclm") %>% 
+  ggplot(aes(lat, hr_gC_m2_yr)) +
+  # geom_point() +
+  geom_line()
+
+landmodel_bench_dat %>% 
+  filter(model %in% c("warner")) %>% 
+  dplyr::select(lat, hr_gC_m2_yr) %>% 
+  na.omit() %>% 
+  group_by(lat) %>% 
+  summarise(Value = mean(hr_gC_m2_yr)) %>% 
+  mutate(Flux = "Benchmark (RH)") %>% 
+  ggplot(aes(lat, Value)) +
+  # geom_point() +
+  geom_line()
+
+bind_rows(
+  landmodel_bench_dat %>% 
+    filter(model %in% c("warner")) %>% 
+    dplyr::select(lat, hr_gC_m2_yr) %>% 
+    na.omit() %>% 
+    group_by(lat) %>% 
+    summarise(Value = mean(hr_gC_m2_yr)) %>% 
+    mutate(Flux = "Benchmark (RH)") ,
+  
+  casa_gpp_npp_rh %>% 
+    dplyr::select(lat, hr_gC_m2_yr, gpp_gC_m2_yr, npp_gC_m2_yr) %>% 
+    na.omit() %>% 
+    tidyr::gather(key = "Flux", value = "Value", -lat) %>% 
+    group_by(lat, Flux) %>% 
+    summarise(Value = mean(Value) ),
+  
+  modis_gpp_npp %>% 
+  na.omit() %>% 
+  tidyr::gather(key = "Flux", value = "Value", -lat) %>% 
+  group_by(lat, Flux) %>% 
+  summarise(Value = mean(Value) ) ) %>% 
+  ggplot(aes(lat, Value, group = Flux, col = Flux )) +
+  # geom_point() +
+  geom_line() +
+  scale_colour_discrete(name = "Flux",
+                        breaks=c("gpp_gC_m2_yr", "GPP_mean", "hr_gC_m2_yr", "Benchmark (RH)", "npp_gC_m2_yr", "NPP_mean"),
+                        labels=c("GPP (CASA-CNP)", "GPP (MODIS)", "RH (CASA-CNP)", "RH (Warner et al. (2019))", "NPP (CASA-CNP)", "NPP (MODIS)")) +
+  labs(x = expression("Latitude"),
+       y = expression(g~C~m^{-2}~year^{-1})) +
+  coord_flip()
+  
+```
+
+```{r}
+bind_rows(CMIP6_perc,
+          CMIP6_perc_GPP,
+          CMIP6_perc_NPP) %>% 
+  dplyr::select(coords, variable, value_rate) %>% 
+  group_by(variable, coords) %>% 
+  summarise(Value = mean(value_rate)) %>% 
+  mutate(lat = coords, Flux = variable,
+         Group = case_when(variable == "gpp" ~ "GPP",
+                           variable == "npp" ~ "NPP",
+                           TRUE ~ "RH")) %>% 
+  dplyr::select(-coords, -variable) ->
+  CMIP_sum_comb
+
+
+  
+bind_rows(
+  CMIP_sum_comb,
+  
+  lat_data %>% 
+    filter(type == "Benchmark") %>%
+    dplyr::select(hr_gC_m2_yr, lat) %>% 
+    group_by(type, lat) %>% 
+    summarise(Value = mean(hr_gC_m2_yr)) %>% 
+    mutate(Flux = "Benchmark (RH)",
+           Group = "RH"), 
+  
+  casa_gpp_npp_rh %>% 
+    dplyr::select(lat, hr_gC_m2_yr, gpp_gC_m2_yr, npp_gC_m2_yr) %>% 
+    na.omit() %>% 
+    tidyr::gather(key = "Flux", value = "Value", -lat) %>% 
+    group_by(lat, Flux) %>% 
+    summarise(Value = mean(Value) ) %>% 
+    mutate(Group = case_when(
+      Flux == "gpp_gC_m2_yr" ~ "GPP",
+      Flux == "npp_gC_m2_yr" ~ "NPP",
+      TRUE ~ "RH")),
+  
+  modis_gpp_npp %>% 
+    na.omit() %>% 
+    tidyr::gather(key = "Flux", value = "Value", -lat) %>% 
+    group_by(lat, Flux) %>% 
+    summarise(Value = mean(Value) ) %>% 
+    mutate(Group = case_when(
+      Flux == "GPP_mean" ~ "GPP",
+      TRUE ~ "NPP")) ) %>% 
+  ggplot(aes(lat, Value, group = Flux, col = Flux )) +
+  # geom_point() +
+  geom_line() +
+  scale_colour_discrete(name = element_blank(),
+                        breaks=c("gpp_gC_m2_yr", "GPP_mean", "gpp",
+                                 "npp_gC_m2_yr", "NPP_mean", "npp",
+                                 "hr_gC_m2_yr", "Benchmark (RH)", "rh"),
+                        labels=c("GPP (CASA-CNP)                         ", "GPP (MODIS)","GPP (CMIP)",
+                                 "NPP (CASA-CNP)                         ", "NPP (MODIS)", "NPP (CMIP)",
+                                 "RH (CASA-CNP)                         ", "RH (Benchmark)", "RH (CMIP)")) +
+  facet_grid(cols = vars(Group), scales = "free") + 
+  labs(x = expression("Latitude"),
+       y = expression(g~C~m^{-2}~year^{-1})) +
+  coord_flip() +
+  theme(legend.position = "top") +
+  guides(col = guide_legend(nrow=3, byrow=F)) 
+
+# plot GPP seperately
+```
+
+
+```{r}
+MGRhD %>% 
+  mutate(MODIS_measure_dif = NPP - Rh_Norm) %>% 
+  dplyr::select(MODIS_measure_dif, Ecosystem2) %>% 
+  na.omit() %>% 
+  ggplot(aes(x = Ecosystem2, y = MODIS_measure_dif)) +
+  geom_boxplot()
+```
+
+```{r}
+MGRhD %>% 
+  dplyr::select(Meas_Year, casaclm, corpse) %>% 
+  filter(Meas_Year == 1998) %>% 
+  na.omit() %>% 
+  ggplot(aes(casaclm, corpse)) +
+  geom_point()
+```
+
+```{r RF, fig.height = 6, fig.width = 8,}
+res_site %>% 
+  select(-MAT, -MAP, -Longitude) %>% 
+  mutate(absLatitude = abs(Latitude)) %>% 
+  na.omit() ->
+  sub_res_site
+
+# writ_file(sub_res_site, 'sub_res_site.csv')
+rf <- randomForest(MBE ~ absLatitude + Biome + Ecosystem_type + Leaf_habit + MAT_Del + MAP_Del + GPP_diff + NPP_diff,
+                   data=sub_res_site,
+                   ntree = 100,
+                   mtry = 2,
+                   importance = TRUE,
+                   proximity = TRUE)
+
+summary(rf)
+importance(rf, type = 1)
+varImpPlot(rf)
+
+# train dataset
+sub_res_site$MBE_pred <- predict(rf, sub_res_site)
+cor(sub_res_site$MBE_pred, sub_res_site$MBE, method = c("spearman"))
+
+sub_res_site %>% 
+  ggplot(aes(MBE_pred, MBE)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  geom_abline(intercept = 0, slope = 1, col = "red", linetype = "dashed") +
+  labs(x = expression(Mean~error~predicted~by~random~forest~(g~C~m^{-2}~day^{-1})),
+       y = expression(Mean~error~(g~C~m^{-2}~day^{-1}))) ->
+  rf_a
+
+# panel b
+qplot(sort(importance(rf, type = 1)[1:8]), 1:8) +
+  geom_line() + theme_bw() +
+  xlab ("Change of MSE (%)") +
+  theme(axis.title.y = element_blank(),
+        panel.grid.minor = element_blank()) + 
+  scale_y_continuous(breaks = c(1:8),
+                     labels = c("Ecosystem", "MAT", "Biome", "Leaf habit", "Latitude", "GPP(dif)", "NPP(dif)", "MAP") ) ->
+  rf_b
+
+# panel c
+qplot(sort(importance(rf, type = 2)[1:8]), 1:8) + geom_line() + theme_bw() +
+  xlab ("Change of node purity") +
+  theme(axis.title.y = element_blank(),
+        panel.grid.minor = element_blank()) + 
+  scale_y_continuous(breaks = c(1:8),
+                     labels = c("Leaf habit", "Ecosystem", "Biome", "MAT", "Latitude", "MAP", "NPP(dif)", "GPP(dif)") ) ->
+  rf_c
+
+panel_b <- plot_grid(rf_b, rf_c, ncol = 2,
+                     labels = c("b", "c"),
+                     hjust = c(-9.5, -9.5),
+                     vjust = 2.75,
+                     rel_widths = c(1, 1))
+
+print(plot_grid(rf_a, panel_b, nrow = 2, labels = c("a", "")
+                , hjust = -10, vjust = 2.75 ) )
+
 ```
 

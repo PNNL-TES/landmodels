@@ -43,3 +43,6 @@ rsconnect/
 Data/
 outputs/
 .drake/
+
+# CMIP6
+CMIP6/yr_latlon_fldmean.csv

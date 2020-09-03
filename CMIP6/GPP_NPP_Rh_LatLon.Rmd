@@ -1,0 +1,220 @@
+---
+title: "NPP, GPP, and Rh Processing and Inital Analysis"
+output: html_notebook
+---
+
+## Input Data 
+```{r, message = FALSE, warning=FALSE}
+# I wanted to use data.table but there were issues with the grouping by and aggregating. 
+library(dplyr) 
+library(tidyr)
+library(ggplot2)
+library(magrittr)
+library(data.table)
+library(lubridate)
+library(tibble)
+# install.packages('udunits2')
+# cmip6_annual_mean <- drake::readd(cmip6_annual_mean)
+# cmip6_global_mean <- drake::readd(cmip6_global_mean)
+out_dir <- "CMIP6"
+# raw_data <- drake::readd(cmip6_raw)
+```
+
+Because the lat and lon coordinates are formatted funky we are going to want to modify them so that they are easier to work with. 
+```{r}
+raw_data <- read.csv('~/Documents/PNNL/landmodels/CMIP6/yr_latlon_fldmean.csv', stringsAsFactors = FALSE)
+# Subset the data so  that it only contains data from the years we are intrested in. 
+raw_data <- raw_data[raw_data$year %in% 1980:2015, ]
+# It looks like CNRM-CM6-1 reports the units in kg CO2 while the other models reported the values in kg of C. 
+# Convert the CNRM-CM6-1 output to be consistent with the other models. 
+raw_data <- as.data.table(raw_data)
+raw_data <- raw_data[model == "CNRM-CM6-1" & variable %in% c('rh', 'npp'), value := value * (12.0107/44.01)]
+raw_data <- raw_data[model == "CNRM-CM6-1-HR" & variable %in% c('rh', 'npp'), value := value * (12.0107/44.01)]
+raw_data <- as_tibble(raw_data)
+
+# sum(is.na(raw_data))
+
+if(sum(is.na(raw_data)) > 0){
+  raw_data <- raw_data[!is.na(raw_data$value), ]
+}
+
+# Create a latitude column, start by parsing out the coordinate information
+# from the cdo argument column and format as a matrix. 
+coords <- strsplit(gsub(pattern = '-sellonlatbox,', replacement = '', x = raw_data$cdo_arg), split = ',')
+coords <- matrix(unlist(coords), nrow = length(coords), byrow = TRUE)[,3]
+raw_data[['coords']] <- as.numeric(coords)
+raw_data$value_rate <- raw_data$value
+raw_data$value <- raw_data$value * raw_data$area # take area into consider
+raw_data$units <- "kg s-1" # take area into consider
+```
+
+Save a data frame of the area per coordinates. 
+```{r}
+df_area_coords <- raw_data[ , names(raw_data) %in% c("raw_data", "experiment", "model", "coords", "area", "units")]
+df_global_area <- df_area_coords %>%
+  group_by(model, experiment) %>%  
+  summarise(area = sum(area)) %>%  
+  ungroup()
+```
+
+Calculate the annual mean flux, in theory the dimensions should not change because this is annual data. This is a precautionary step  just incase the results for a single year were split over mulitple files. 
+```{r}
+raw_data %>%  
+  group_by(year, variable, experiment, ensemble, model, coords, units) %>%  
+  summarise(value = mean(value),
+            value_rate = mean(value_rate)) %>% 
+  ungroup(.) -> 
+  annual_mean
+```
+
+Since the units are currently the average kg C m^-2 s^-1 for a year let's convert them to g C m^-2 yr^-1
+
+```{r}
+# First multiply the rate by the number of seconds in a year.
+annual_mean$value <- annual_mean$value * 3.154e7
+annual_mean$value_rate <- annual_mean$value_rate * 3.154e7
+
+# Now convert from kg to g. 
+annual_mean$value <- udunits2::ud.convert(x = annual_mean$value, u1 = 'kg', u2 = 'g')
+annual_mean$value_rate <- udunits2::ud.convert(x = annual_mean$value_rate, u1 = 'kg', u2 = 'g')
+annual_mean$units <- gsub(x = annual_mean$units, pattern = "s-1", replacement = "yr-1")
+annual_mean$units <- "g yr-1"
+```
+
+Calculate the global rate. 
+
+```{r}
+annual_mean %>%  
+  group_by(year, variable, experiment, ensemble, model, units) %>%  
+  summarise(value = sum(value)) %>% 
+  ungroup(.) -> 
+  global_mean
+```
+
+Make some diagnositc plots to make sure that. The results make sense and are consistent. 
+
+```{r}
+global_mean %>% 
+  ggplot() + 
+  geom_line(aes(year, value, color = model, group = interaction(ensemble,  variable, model))) + 
+  facet_wrap('variable')
+```
+
+
+```{r}
+global_mean %>%  
+  mutate(keep  = if_else(variable == 'gpp' & model %in% c("E3SM-1-1", "E3SM-1-1-ECA"), FALSE, TRUE)) %>% 
+  mutate(keep = if_else(variable == 'rh' & model %in% c("E3SM-1-1", "E3SM-1-1-ECA"), FALSE, keep)) %>%  
+  filter(keep) %>% 
+  dplyr::select(-keep) %>% 
+  dplyr::filter(value > -1) -> 
+  clean_global_data
+  
+clean_global_data %>% 
+  ggplot() + 
+  geom_line(aes(year, value, color = model, group = interaction(ensemble,  variable, model))) + 
+  facet_wrap('variable') + 
+  labs(title = 'Selected Annual Global Data', y = "g yr-1") + 
+  theme_bw()
+```
+
+
+```{r}
+clean_global_data %>% 
+  dplyr::select(year, variable, experiment, ensemble, model, units) %>% 
+  distinct() -> 
+  data_to_keep
+  
+clean_laltlon_data <- inner_join(annual_mean, data_to_keep) 
+```
+
+Make a quick plot of the lat / lon data for a single year. 
+
+```{r}
+clean_laltlon_data %>%  
+  filter(year == '2012') %>% 
+  ggplot(aes(coords, value_rate, color = model, group = interaction(model, ensemble))) + 
+  geom_line() + 
+  facet_wrap('variable', scales = 'free') + 
+  labs(title = 'C Flux by Lat and Lon', subtitle = '2012', y = "g yr-1") + 
+  theme_bw()
+
+clean_laltlon_data %>%  
+  filter(year == '2012') %>% 
+  ggplot(aes(coords, value, color = model, group = interaction(model, ensemble))) + 
+  geom_line() + 
+  facet_wrap('variable', scales = 'free') + 
+  labs(title = 'C Flux by Lat and Lon', subtitle = '2012', y = "g yr-1") + 
+  theme_bw()
+```
+
+## Calculate the Percent of Global Total. 
+
+```{r}
+global <- rename(clean_global_data, global = value)
+
+percent_data <- left_join(clean_laltlon_data, global, by = c("year", "variable", "experiment", 
+                                                            "ensemble", "model", "units")) %>%  
+  mutate(percent = 100 * (value / global)) %>%  
+  rename(latlon = value)
+
+
+percent_data %>% 
+  filter(year == 2012) %>% 
+  ggplot() + 
+  geom_line(aes(coords, percent, color = model, group = interaction(ensemble, model))) +
+  facet_wrap('variable')
+
+```
+
+## Format 
+Now that our data looks decent let's save the data. For simplicity's sake let's save a copy of each of the time series by variable. 
+```{r}
+yrs <- paste0(range(clean_global_data$year), collapse = '-')
+gpp_data <- clean_global_data[clean_global_data$variable == 'gpp', ]
+npp_data <- clean_global_data[clean_global_data$variable == 'npp', ]
+rh_data  <- clean_global_data[clean_global_data$variable == 'rh', ]
+
+# write.csv(x = gpp_data, file = file.path(out_dir, paste0('gpp_global_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = npp_data, file = file.path(out_dir, paste0('npp_global_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = rh_data, file = file.path(out_dir, paste0('rh_global_', yrs, '.csv')), row.names = FALSE)
+```
+
+Next save a copy of the raw lat and lon values. 
+```{r}
+yrs <- paste0(range(clean_laltlon_data$year), collapse = '-')
+gpp_data <- clean_laltlon_data[clean_laltlon_data$variable == 'gpp', ]
+npp_data <- clean_laltlon_data[clean_laltlon_data$variable == 'npp', ]
+rh_data  <- clean_laltlon_data[clean_laltlon_data$variable == 'rh', ]
+
+# write.csv(x = gpp_data, file = file.path(out_dir, paste0('gpp_latlon_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = npp_data, file = file.path(out_dir, paste0('npp_latlon_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = rh_data, file = file.path(out_dir, paste0('rh_latlon_', yrs, '.csv')), row.names = FALSE)
+```
+
+
+```{r}
+yrs <- paste0(range(percent_data$year), collapse = '-')
+gpp_data <- percent_data[percent_data$variable == 'gpp', ]
+npp_data <- percent_data[percent_data$variable == 'npp', ]
+rh_data  <- percent_data[percent_data$variable == 'rh', ]
+
+# write.csv(x = gpp_data, file = file.path('/Users/jian107/Documents/PNNL/landmodels/CMIP6', paste0('gpp_latlon_percent_global_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = npp_data, file = file.path('/Users/jian107/Documents/PNNL/landmodels/CMIP6', paste0('npp_latlon_percent_global_', yrs, '.csv')), row.names = FALSE)
+# write.csv(x = rh_data, file = file.path('/Users/jian107/Documents/PNNL/landmodels/CMIP6', paste0('rh_latlon_percent_global_', yrs, '.csv')), row.names = FALSE)
+```
+
+
+Save information about the area per sampled region. 
+```{r}
+df_area_coords$units <- 'm^2'
+# write.csv(x = df_area_coords, file = file.path(out_dir, paste0('area_latlon_model.csv')), row.names = FALSE)
+```
+
+
+## Print Session Info
+```{r}
+sessionInfo()
+```
+
+

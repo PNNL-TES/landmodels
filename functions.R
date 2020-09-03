@@ -18,6 +18,28 @@ clean_mgrhd <- function(dat){
 }
 
 # function to get Rh data from wieder according to latitude, longitude, year, and day
+get_warner_rs <- function(rh_dat){
+  warner_rs <- raster("~/Data/Vargas_Warner_Rs/Rs_Mean_QRFPred.tif")
+  for (i in 1:nrow(rh_dat)){
+    lat <- rh_dat$Latitude[i]
+    lon <- rh_dat$Longitude[i]
+    if (is.na(lat) | is.na(lon)) {next} 
+    else {
+      lat_low <- lat - 0.1
+      lat_high <- lat + 0.1
+      lon_low <- lon - 0.1
+      lon_high <- lon + 0.1
+      
+      ex_cell <- raster::extent(c(lon_low, lon_high, lat_low, lat_high))
+      rs_cell <- raster::extract(warner_rs, ex_cell, fun = mean, na.rm = TRUE)
+      
+      rh_dat[i, "warner_rs"] <- rs_cell
+    }
+    print(paste0("*****", i))
+  }
+  return (rh_dat)
+}
+
 get_warner_rh <- function(rh_dat){
   warner_rh <- raster("~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif")
   for (i in 1:nrow(rh_dat)){
@@ -96,7 +118,7 @@ get_hashimoto <- function(rh_dat) {
 }
 
 # get Rh from land models
-get_landm <- function(f, mgrhd){
+get_landm <- function(f, mgrhd, start_yr, end_yr) {
   landm <- nc_open(f)
   var_rh <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
   modelname <- strsplit(basename(f), "_")[[1]][1]
@@ -117,17 +139,64 @@ get_landm <- function(f, mgrhd){
     ilon <- which.min(abs(lon - target_lon))
     
     time <- as.numeric(ncvar_get(landm, "time"))
+    # time <- as.data.frame(time)
     itime <- which.min(abs(time - target_time))
-    min_time <- min(abs(time - target_time))
+    min_time <- min(abs(time - target_time)) 
     doy <- time %% 1 * 364.25 + 1
-    idoy <- which(abs(doy - target_doy) <= 3) # find the doy within 3 days of DOY (e.g., if DOY = 15, then DOY 12,12,14,15,15,17,18 will be used)
+    idoy <- which(abs(doy - target_doy) <= 3) # find the doy within 3 days of DOY (e.g., if DOY = 15, then DOY 12,13,14,15,16,17,18 will be used)
     
-    Rh_cell <- ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, itime), count = c(1, 1, 1))
+    Rh_cell <- ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, itime), count = c(1, 1, 1)) # many 0 Rh from models, update this?
     Rh_avg <- mean(ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, 1), count = c(1, 1, -1))[idoy], na.rm=T) # Rh average of idoy
     
-    mgrhd[i, modelname] <- ifelse(target_time > 2011 | target_time < 2000, Rh_avg, Rh_cell) # since model only have prediction from 2000-2010, other times using average
+    if(target_time > 2010) {mgrhd[i, modelname] <- Rh_avg} else if (target_time >= start_yr & target_time <= end_yr) {
+      mgrhd[i, modelname] <- Rh_cell
+    } else {next}
+    # mgrhd[i, modelname] <- ifelse(target_time > 2010, Rh_avg, Rh_cell)
+    print(paste0(var_rh[modelname], "*****", start_yr, "-", end_yr, "*****", i, "*****", round(Rh_cell,2),"*****year=", target_year, "*****time=", itime))
+  }
+  return(mgrhd)
+}
+
+# get GPP and NPP from casaclm
+get_casa_gppnpp <- function(f, mgrhd, start_yr, end_yr) {
+  landm <- nc_open(f)
+  
+  for (i in 1:nrow(mgrhd)) {
+    target_lat <- mgrhd$Latitude[i]
+    target_lon <- mgrhd$Longitude[i]
+    target_year <- mgrhd$Meas_Year[i]
+    target_doy <- mgrhd$Meas_DOY[i]
+    target_time <- target_year + target_doy/365
     
-    print(paste0("*****", i))
+    # find the locate of data in tang_rh for ith Rh_annual
+    lat <- ncvar_get(landm, "lat")
+    ilat <- which.min(abs(lat - target_lat))
+    
+    lon_orig <- ncvar_get(landm, "lon") 
+    lon <- ifelse(lon_orig <= 180, lon_orig, lon_orig - 360)
+    ilon <- which.min(abs(lon - target_lon))
+    
+    time <- as.numeric(ncvar_get(landm, "time"))
+    # time <- as.data.frame(time)
+    itime <- which.min(abs(time - target_time))
+    min_time <- min(abs(time - target_time)) 
+    doy <- time %% 1 * 364.25 + 1
+    idoy <- which(abs(doy - target_doy) <= 3) # find the doy within 3 days of DOY (e.g., if DOY = 15, then DOY 12,13,14,15,16,17,18 will be used)
+    
+    gpp_cell <- ncvar_get(landm, "cgpp", start = c(ilon, ilat, itime), count = c(1, 1, 1)) # gpp of a specific day
+    gpp_avg <- mean(ncvar_get(landm, "cgpp", start = c(ilon, ilat, 1), count = c(1, 1, -1))[idoy], na.rm=T) # gpp average of idoy
+    
+    npp_cell <- ncvar_get(landm, "cnpp", start = c(ilon, ilat, itime), count = c(1, 1, 1)) # npp of a specific day
+    npp_avg <- mean(ncvar_get(landm, "cnpp", start = c(ilon, ilat, 1), count = c(1, 1, -1))[idoy], na.rm=T) # npp average of idoy
+    
+    if(target_time > 2010) {
+      mgrhd[i, "casagpp"] <- gpp_avg
+      mgrhd[i, "casanpp"] <- npp_avg } 
+    else if (target_time >= start_yr & target_time <= end_yr) {
+      mgrhd[i, "casagpp"] <- gpp_cell
+      mgrhd[i, "casanpp"] <- npp_cell
+    } else {next}
+    print(paste0("casa-gpp-npp", start_yr, "-", end_yr, "*****", i, "*****year=", target_year, "*****time=", itime))
   }
   return(mgrhd)
 }
@@ -156,6 +225,8 @@ slr_residual_site <- function(sdata) {
     Leaf_habit <- sub_data$Leaf_habit[1]
     MAT <- sub_data$MAT[1]
     MAP <- sub_data$MAP[1]
+    GPP_diff = mean(sub_data$GPP_diff, na.rm = T)
+    NPP_diff = mean(sub_data$NPP_diff, na.rm = T)
     
     # t test
     res_t <- t.test(sub_data$Residuals, conf.level = 0.95)
@@ -174,7 +245,8 @@ slr_residual_site <- function(sdata) {
     out <- rbind(out, data.frame(var_study[i], n_obs,
                                  MBE, p_t_test,
                                  inter_res, slope_res, slope_p_res, R2_res,
-                                 Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit, MAT, MAP) )
+                                 Latitude, Longitude, Biome, Ecosystem_type, Leaf_habit,
+                                 MAT, MAP, GPP_diff, NPP_diff) )
     print(paste0(i," ********** ", var_study[i]))
   }
   
@@ -364,4 +436,90 @@ Rh_site_comp <- function(sdata, study_number) {
   
   # print(p_comb)
 }
+
+#*****************************************************************************************************************
+# Prepare CMIP6 data -- need double check
+# ? why the results from here differ from the results produced by "GPP_NPP_Rh_LatLon.Rmd" (use this)
+#*****************************************************************************************************************
+clean_cmip6_raw <- function(){
+  raw_data <- read.csv('extdata/yr_latlon_fldmean.csv', stringsAsFactors = FALSE)
+  
+  # Subset the data so  that it only contains data from the years we are intrested in. 
+  raw_data <- raw_data[raw_data$year %in% 1980:2015, ]
+  
+  # It looks like CNRM-CM6-1 reports the units in kg CO2 while the other models reported the values in kg of C. 
+  # Convert the CNRM-CM6-1 output to be consistent with the other models. 
+  raw_data <- as.data.table(raw_data)
+  raw_data <- raw_data[model == "CNRM-CM6-1" & variable %in% c('rh', 'npp'), value := value * (12.0107/44.01)]
+  raw_data <- raw_data[model == "CNRM-CM6-1-HR" & variable %in% c('rh', 'npp'), value := value * (12.0107/44.01)]
+  raw_data <- as_tibble(raw_data)
+  
+  # take care of NA data
+  if(sum(is.na(raw_data)) > 0){
+    raw_data <- raw_data[!is.na(raw_data$value), ]
+  }
+  return(raw_data)
+}
+
+get_annual_mean <- function (sdata){
+  # Create a latitude column, start by parsing out the coordinate information
+  # from the cdo argument column and format as a matrix. 
+  coords <- strsplit(gsub(pattern = '-sellonlatbox,', replacement = '', x = sdata$cdo_arg), split = ',')
+  coords <- matrix(unlist(coords), nrow = length(coords), byrow = TRUE)[,3]
+  sdata[['coords']] <- as.numeric(coords)
+  
+  # Save a data frame of the area per coordinates. 
+  df_area_coords <- sdata[ , names(sdata) %in% c("raw_data", "experiment", "model", "coords", "area", "units")]
+  df_global_area <- df_area_coords %>%
+    group_by(model, experiment) %>%  
+    summarise(area = sum(area)) %>%  
+    ungroup()
+  
+  sdata %>%  
+    group_by(year, variable, experiment, ensemble, model, coords, units) %>%  
+    summarise(value = mean(value)) %>% 
+    ungroup(.) -> 
+    annual_mean
+  # First multiply the rate by the number of seconds in a year.
+  annual_mean$value <- annual_mean$value * 3.154e7
+  
+  # Now convert from kg to g. 
+  annual_mean$value <- udunits2::ud.convert(x = annual_mean$value, u1 = 'kg', u2 = 'g')
+  annual_mean$units <- gsub(x = annual_mean$units, pattern = "s-1", replacement = "yr-1")
+  
+  return(annual_mean)
+}
+
+get_global_mean <- function(sdata) {
+  # Calculate the global rate. 
+  sdata %>%  
+    group_by(year, variable, experiment, ensemble, model, units) %>%  
+    summarise(value = sum(value)) %>% 
+    ungroup(.) -> 
+    global_mean
+  
+  return(global_mean)
+}
+
+#*****************************************************************************************************************
+# Prepare data for Warner_2020 Rh mapping
+#*****************************************************************************************************************
+prepare_warner_rh <- function() {
+  warner_bond2004 = raster('~/Data/Vargas_Warner_Rs/Rh_BondLamberty2004.tif')
+  # upscale SRDB data (area-averaged) to the resolution of MIMICS, CASACLM and CORPSE
+  lat_dim_source = 21600
+  lon_dim_source = 43200
+  lat_dim_target = 96
+  lon_dim_target = 144
+  shr_SRDB = aggregate(warner_bond2004, fact=c(lon_dim_source/lon_dim_target, lat_dim_source/lat_dim_target),
+                       fun=mean, na.rm = TRUE)
+  
+  shr_SRDB2 <- t(as.matrix(shr_SRDB))
+  shr_SRDB2 <- shr_SRDB2[,ncol(shr_SRDB2):1]
+  shr_SRDB2 <- shr_SRDB2[c((nrow(shr_SRDB2)/2+1):nrow(shr_SRDB2),1:(nrow(shr_SRDB2)/2)),]
+  shr_SRDB2 <- shr_SRDB2/365
+  
+  return(shr_SRDB2)
+}
+
 

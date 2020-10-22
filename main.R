@@ -95,8 +95,8 @@ read_tang_rh <- function(f, area_cellarea) {
   as_tibble(dat) %>% mutate(type = "benchmark", time = time + 1979)
 }
 
+# Read data from CRUNCEP scenario run
 read_landmodels <- function(lm_files) {
-  
   # Open up each file in turn and extract land area, missing flag, and time
   resultslist <- list()
   for(f in lm_files) {
@@ -216,20 +216,79 @@ get_mgrhd_rh <- function() {
   mgrhd_landmodel <- get_casa_gppnpp("/Users/jian107/Data/Wieder//casaclm_pool_flux_2000-2010_daily.nc", mgrhd_landmodel, 2000, 2010)
 }
 
+# get rh from landmodels with GSWP3 scenario for mgrhd data
+# get Rh from land models
+get_landm_gswp3 <- function(f_list, mgrhd) {
+  for(f in f_list) {
+    landm <- nc_open(f)
+    var_rh <- c("casaclm" = "cresp", "corpse" = "Soil_CO2", "mimics" = "cHresp")
+    modelname <- strsplit(basename(f), "_")[[1]][1]
+    
+    for (i in 1:nrow(mgrhd)) {
+      target_lat <- mgrhd$Latitude[i]
+      target_lon <- mgrhd$Longitude[i]
+      target_year <- mgrhd$Meas_Year[i]
+      target_doy <- mgrhd$Meas_DOY[i]
+      target_time <- target_year + target_doy/365
+      
+      # find the locate of data in tang_rh for ith Rh_annual
+      lat <- ncvar_get(landm, "lat")
+      ilat <- which.min(abs(lat - target_lat))
+      
+      lon_orig <- ncvar_get(landm, "lon") 
+      lon <- ifelse(lon_orig <= 180, lon_orig, lon_orig - 360)
+      ilon <- which.min(abs(lon - target_lon))
+      
+      time <- as.numeric(ncvar_get(landm, "time"))
+      # time <- as.data.frame(time)
+      itime <- which.min(abs(time - target_time))
+      min_time <- min(abs(time - target_time)) 
+      doy <- time %% 1 * 364.25 + 1
+      idoy <- which(abs(doy - target_doy) <= 3) # find the doy within 3 days of DOY (e.g., if DOY = 15, then DOY 12,13,14,15,16,17,18 will be used)
+      
+      Rh_cell <- ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, itime), count = c(1, 1, 1)) # many 0 Rh from models, update this?
+      Rh_avg <- mean(ncvar_get(landm, var_rh[modelname], start = c(ilon, ilat, 1), count = c(1, 1, -1))[idoy], na.rm=T) # Rh average of idoy
+      
+      if(target_time > 2014) {mgrhd[i, paste0("gswp3_", modelname)] <- Rh_avg} else if (target_time >= min(time) & target_time <= max(time)) {
+        mgrhd[i, paste0 ("gswp3_", modelname)] <- Rh_cell
+      } else {next}
+      # mgrhd[i, modelname] <- ifelse(target_time > 2010, Rh_avg, Rh_cell)
+      print(paste0(var_rh[modelname], "*****", "-", f, "*****", i, "*****", round(Rh_cell,2),"*****year=", target_year, "*****time=", itime))
+    }
+  }
+  
+  return(mgrhd)
+}
+
+
+#*****************************************************************************************************************
+# plan 
+#*****************************************************************************************************************
 plan <- drake::drake_plan(
+  
+  # Read land model CRUNCEP scenario
   lm_files = list.files("~/Data/Wieder/", pattern = "*.nc", full.names = TRUE), # need update nc data
   # landmodel_dat = read_landmodels(lm_files), # need update nc data, this takes too long, now do casa, corpse, and mimics seperately
-  
   lm_files_casa = lm_files[3:5],
   landmodel_dat_casa = read_landmodels(lm_files_casa),
   casa_gpp_npp_rh = read_casa_gppnpp(lm_files_casa), # get casa gpp and npp
-  modis_gpp_npp = read_file("lat_mean.csv"),
+  modis_gpp_npp = read_file("lat_mean.csv"), # get MODIS GPP and NPP
 
   lm_files_corpse = lm_files[8:10],
   landmodel_dat_corpse = read_landmodels(lm_files_corpse),
 
   lm_files_mimics = lm_files[13:15],
   landmodel_dat_mimics = read_landmodels(lm_files_mimics),
+  
+  # Read land model GSWP3 scenario
+  gswps_lm_casa = list.files("~/Data/Wieder_gswp3/casa", pattern = "*.nc", full.names = TRUE)[21:55],
+  gswps_lm_corpse = list.files("~/Data/Wieder_gswp3/corpse", pattern = "*.nc", full.names = TRUE)[21:55],
+  gswps_lm_mimics = list.files("~/Data/Wieder_gswp3/mimics", pattern = "*.nc", full.names = TRUE)[21:55],
+  
+  landmodel_gswps_dat_casa = read_landmodels(gswps_lm_casa),
+  casa_gswp3_gpp_npp_rh = read_casa_gppnpp(gswps_lm_casa[1:31]), # get casa-gswp3 gpp and npp
+  landmodel_gswps_dat_corpse = read_landmodels(gswps_lm_corpse),
+  landmodel_gswps_dat_mimics = read_landmodels(gswps_lm_mimics),
   
   hashimoto_dat = read_hashimoto_rh("~/Data/Hashimoto/RH_yr_Hashimoto2015.nc"),
   
@@ -243,6 +302,11 @@ plan <- drake::drake_plan(
   
   # load the global monthly heterotrophic respiration data
   MGRhD_landmodel = get_mgrhd_rh(),
+  
+  # get gswp3 Rh for mgrhd
+  gswps_lm_all = list.files("~/Data/Wieder_gswp3", pattern = "*.nc", full.names = TRUE, recursive = TRUE),
+  mgrhd_gswp3_landm = get_landm_gswp3(gswps_lm_all, MGRhD_landmodel),
+  
   srdb = read.csv("~/Documents/PNNL/srdb/srdb-data.csv"),
   srdb_warner = get_warner_rs(srdb),
   srdb_rh = get_srdb_rh(srdb),
@@ -254,6 +318,7 @@ plan <- drake::drake_plan(
   CMIP6_perc_NPP = read.csv(file_in(!!file.path("CMIP6",'npp_latlon_percent_global_1980-2015.csv'))),
   lat_area = read.csv(file_in(!!file.path("CMIP6",'area_latlon_model.csv'))),
   cmip6_global = read.csv(file_in(!!file.path("CMIP6",'rh_global_1980-2015.csv'))),
+  NEE_data = read.table('/Users/jian107/Documents/PNNL/landmodels/extdata/fluxnet_latgradient.dat', skip = 1), 
   # cmip6_raw = clean_cmip6_raw(),
   # cmip6_annual_mean = get_annual_mean(cmip6_raw),
   # cmip6_global_mean = get_global_mean(cmip6_annual_mean),

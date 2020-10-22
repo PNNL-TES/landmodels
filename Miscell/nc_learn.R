@@ -12,9 +12,15 @@ ncname <- "~/Data/Hashimoto/RH_yr_Hashimoto2015.nc"
 dname <- "co2"  # note: tas means air temperature 
 
 # open a netCDF file
-ncin <- nc_open("~/Data/Wieder/casaclm_pool_flux_1960-1969_daily.nc", readunlim=TRUE, auto_GMT=TRUE, suppress_dimvals=TRUE)
+ncin <- nc_open("~/Data/Wieder_gswp3/casa/casaclm_pool_flux_1960_daily.nc", readunlim=TRUE, auto_GMT=TRUE, suppress_dimvals=TRUE)
 print(ncin)
 summary(ncin)
+
+ncin <- nc_open("~/Data/Wieder_gswp3/corpse/corpse_pool_flux_1960_daily.nc", readunlim=TRUE, auto_GMT=TRUE, suppress_dimvals=TRUE)
+print(ncin)
+
+ncin <- nc_open("~/Data/Wieder_gswp3/mimics/mimics_pool_flux_1960_daily.nc", readunlim=TRUE, auto_GMT=TRUE, suppress_dimvals=TRUE)
+print(ncin)
 
 x <- ncvar_get(ncin, "cresp", start = c(1, 1, 1), count = c(-1, -1, -1))
 image(x)

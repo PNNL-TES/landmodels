@@ -28,6 +28,7 @@ vignettes/*.pdf
 /*_cache/
 /cache/
 
+
 # Temporary files created by R markdown
 *.utf8.md
 *.knit.md
@@ -46,3 +47,7 @@ outputs/
 
 # CMIP6
 CMIP6/yr_latlon_fldmean.csv
+
+Manuscript/
+landModelRh_cache/
+landModelRh_files/

@@ -500,3 +500,159 @@ fit <- rpart(MBE ~ Latitude + Longitude + Biome + Ecosystem_type + Leaf_habit + 
 plotcp(fit) # visualize cross-validation results
 summary(fit) # detailed summary of splits
 ```
+
+```{r}
+plot_grid(
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, b_casa_rh) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+      labels = c(expression(Measured~R[H]), expression("CASA-CNP")),
+      values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "d", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, b_corpse_rh) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+      labels = c(expression(Measured~R[H]), expression("CORPSE")),
+      values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "e", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, b_mimics_rh) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+       labels = c(expression(Measured~R[H]), expression("MIMICS")),
+       values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "f", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  nrow = 1) ->
+  cru_scenario
+
+plot_grid(
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, c_casa_rh_gswp3) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+      labels = c(expression(Measured~R[H]), expression("CASA-CNP")),
+      values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "d", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, c_corpse_rh_gswp3) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+      labels = c(expression(Measured~R[H]), expression("CORPSE")),
+      values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "e", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  
+  bootstrap_mgrsb_rh %>%
+    dplyr::select(a_measure_rh, c_mimics_rh_gswp3) %>% 
+    tidyr::gather(Rh_type) %>% 
+    ggplot(aes(value, fill = Rh_type)) +
+    # theme_cowplot() +
+    geom_density(stat = "density", alpha = 0.65) +
+    theme(legend.position = c(0.8, 0.75)) +
+    coord_cartesian(xlim = c(0.5, 4)) +
+    scale_fill_manual("",
+       labels = c(expression(Measured~R[H]), expression("MIMICS")),
+       values=c("skyblue", "#E41A1C")) +
+    theme(
+      legend.title = element_blank(),
+      legend.text.align = 0) +
+    ylab("Density") +
+    # annotate("text", x = 0.6, y = 1.5, size = 6, label = "f", hjust = 0) +
+    xlab(expression(R[S] ~ (g~C~m^{-2}~day^{-1}))),
+  nrow = 1) ->
+  gsw_scenario
+  
+plot_grid(cru_scenario, gsw_scenario,
+          ncol = 1)
+```
+
+
+```{r}
+# boxplot
+MGRhD %>% 
+  dplyr::select(Rh_Norm, casaclm, corpse, mimics, Meas_Month2, Manipulation) %>% 
+  rename(Rh = Rh_Norm) %>% 
+  mutate(Seasnon = case_when(
+    Meas_Month2 %in% c(3, 4, 5)~"(a) Spring",
+    Meas_Month2 %in% c(6, 7, 8)~"(b) Summer",
+    Meas_Month2 %in% c(9, 10, 11)~"(c) Autumn",
+    Meas_Month2 %in% c(12, 1, 2)~"(d) Winter",
+    TRUE ~ "Other"
+  )) %>% 
+  filter(Manipulation == "None") %>% 
+  na.omit() %>% 
+  dplyr::select(Seasnon, Meas_Month2, Rh, casaclm, corpse, mimics) %>% 
+  tidyr::gather("Group", "Rh", -Seasnon, -Meas_Month2) %>% 
+  ggplot(aes(x = Group, y = Rh, fill = as.factor(Group))) +
+  # geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(outlier.size = 0.5, outlier.shape = 16,
+               lwd = 0.5, width = 0.5, alpha=1, fatten = NULL) +
+  stat_summary(fun.y=mean, geom="point", shape=16, size=4.5, col = "gray", show.legend = F) +
+  stat_summary(fun.y=mean, geom="point", shape=16, size=1.5, col = "white", show.legend = F) +
+  facet_wrap(. ~ Meas_Month2,
+             ncol = 3,
+             scales = "free") +
+  theme(legend.position = "top",
+        legend.title = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x=element_blank()) +
+  labs(y = expression(R[H]~(g~C~m^2~day^{-1}))) +
+  scale_fill_discrete(breaks=c("casaclm", "corpse", "mimics", "Rh"),
+                      labels=c("CASA-CNP", "CORPSE", "MIMICS", "Measured"))
+```
+

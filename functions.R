@@ -228,8 +228,10 @@ slr_residual_site <- function(sdata) {
     GPP_diff = mean(sub_data$GPP_diff, na.rm = T)
     NPP_diff = mean(sub_data$NPP_diff, na.rm = T)
     
-    # t test
-    res_t <- t.test(sub_data$Residuals, conf.level = 0.95)
+    # according to Ben Sulman's comment, change t-test to welcox noparamatic test
+    # Marin's vedio #40
+    res_t <- wilcox.test(sub_data$Rh_model, sub_data$Rh_Norm, mu = 0, alt = "two.sided",
+                         paired = T, conf.int = T, conf.level = 0.95, exact = F)
     MBE <- res_t$estimate
     p_t_test <- res_t$p.value %>% round(3)
     
@@ -324,6 +326,8 @@ Rh_site_comp <- function(sdata, study_number) {
                           labels=c("CASA-CNP", "CORPSE", "MIMICS", "Measured")) +
     scale_color_manual(values=c("red", "orange4", "springgreen4", "black")) +
     # # custome linetype
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) +
     scale_linetype_discrete(name = "Method",
                             breaks=c("CASACNP", "CORPSE", "MIMICS", "Rh_field"),
                             labels=c("CASA-CNP", "CORPSE", "MIMICS", "Measured")) +
@@ -430,8 +434,8 @@ Rh_site_comp <- function(sdata, study_number) {
   
   plot_grid(p, p_dif_pred,
             # p_dif, p_lm, 
-            ncol = 2,
-            rel_widths = c(1.35, 1)) ->
+            ncol = 1,
+            rel_heights = c(1.1, 1)) ->
     p_comb
   
   # print(p_comb)

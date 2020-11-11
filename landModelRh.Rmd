@@ -1647,7 +1647,7 @@ plot_grid(residual_group,
 
 ```
 
-```{r temporal casa, fig.width=8, fig.height=8}
+```{r temporal casa, fig.width=10, fig.height=8}
 # CASA-CRUNCEP
 # "brown", "violetred2", "#00C1AA"
 mgrhd_sub %>% 
@@ -1657,7 +1657,7 @@ mgrhd_sub %>%
   group_by(Climate_full_name, Meas_DOY) %>% 
   summarise_each(funs = mean) %>% 
   ggplot(aes(x = Meas_DOY, y = Rh_Norm)) +
-  geom_line(col = "#00C1AA") + 
+  geom_line(col = "gray") + 
   geom_line(aes(x = Meas_DOY, y = casaclm), col = "brown", alpha = 0.75) +
   facet_wrap(.~Climate_full_name, ncol = 1) +
   labs(title = "CASA-CRUNCEP", x = "Day of year",
@@ -1671,13 +1671,47 @@ mgrhd_sub %>%
   group_by(Climate_full_name, Meas_DOY) %>% 
   summarise_each(funs = mean) %>% 
   ggplot(aes(x = Meas_DOY, y = Rh_Norm)) +
-  geom_line(col = "#00C1AA") + 
+  geom_line(col = "gray") + 
   geom_line(aes(x = Meas_DOY, y = gswp3_casaclm), col = "violetred2", alpha = 0.75) +
   facet_wrap(.~Climate_full_name, ncol = 1) +
+  theme(axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()) +
   labs(title = "CASA-GSWP3", x = "Day of year",
        y = element_blank()) -> temp_casagswp3
 
-temp_casacru | temp_casagswp3
+# CORPSE-GSWP3
+mgrhd_sub %>% 
+  dplyr::filter(Latitude >= 0) %>% 
+  dplyr::select(Climate_full_name, Meas_DOY, Rh_Norm, casaclm, corpse, mimics,
+                gswp3_casaclm, gswp3_corpse, gswp3_mimics) %>% 
+  group_by(Climate_full_name, Meas_DOY) %>% 
+  summarise_each(funs = mean) %>% 
+  ggplot(aes(x = Meas_DOY, y = Rh_Norm)) +
+  geom_line(col = "gray") + 
+  geom_line(aes(x = Meas_DOY, y = gswp3_corpse), col = "#00C1AA", alpha = 0.75) +
+  facet_wrap(.~Climate_full_name, ncol = 1) +
+  theme(axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()) +
+  labs(title = "CORPSE-GSWP3", x = "Day of year",
+       y = element_blank()) -> temp_corpsegswp3
+
+# MIMICS-GSWP3
+mgrhd_sub %>% 
+  dplyr::filter(Latitude >= 0) %>% 
+  dplyr::select(Climate_full_name, Meas_DOY, Rh_Norm, casaclm, corpse, mimics,
+                gswp3_casaclm, gswp3_corpse, gswp3_mimics) %>% 
+  group_by(Climate_full_name, Meas_DOY) %>% 
+  summarise_each(funs = mean) %>% 
+  ggplot(aes(x = Meas_DOY, y = Rh_Norm)) +
+  geom_line(col = "gray") + 
+  geom_line(aes(x = Meas_DOY, y = gswp3_mimics), col = "blue", alpha = 0.75) +
+  facet_wrap(.~Climate_full_name, ncol = 1) +
+  theme(axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()) +
+  labs(title = "MIMICS-GSWP3", x = "Day of year",
+       y = element_blank()) -> temp_mimicsgswp3
+
+temp_casacru | temp_casagswp3 | temp_corpsegswp3 | temp_mimicsgswp3
 ```
 
 ```{r temporal variability comparison, fig.width=9, fig.height=8}
